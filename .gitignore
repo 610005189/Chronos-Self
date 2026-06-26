@@ -1,0 +1,110 @@
+# Chronos-Self Project .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# Distribution
+.pypi/
+*.manifest
+*.spec
+
+# Logs
+logs/
+*.log
+
+# Data and Models
+data/
+checkpoints/
+vector_db/
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+
+# Temporary Files
+*.tmp
+*.temp
+*.bak
+.cache/
+
+# OS Specific
+Thumbs.db
+Desktop.ini
+
+# Project Specific
+runs/  # Tensorboard logs
+results/
+configs/*.json  # User config files, but keep template
+!configs/default_config.json
+
+# Secrets and Environment
+.env
+.env.local
+*.key
+secrets/
+
+# Build artifacts
+*.o
+*.a
+*.lib
+*.dll
+*.exe
+*.out
+*.app
