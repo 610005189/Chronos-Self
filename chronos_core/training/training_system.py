@@ -247,6 +247,9 @@ class TrainingSystem(nn.Module):
         self._current_step: int = 0
         self._is_training: bool = False
 
+        # 冻结策略结果
+        self._freezing_result: Optional[Dict[str, Any]] = None
+
         # 初始化标志
         self._initialized = False
 
@@ -336,13 +339,40 @@ class TrainingSystem(nn.Module):
     def _apply_freezing_strategy(self) -> None:
         """应用冻结策略"""
         if self.freezing_strategy and self.integration_engine:
-            # 获取积分引擎的可训练参数
-            trainable_params = []
-            for name, param in self.integration_engine.named_parameters():
-                if param.requires_grad:
-                    trainable_params.append(param)
+            # 记录冻结前的可训练参数数量
+            trainable_before = sum(
+                1 for param in self.integration_engine.parameters()
+                if param.requires_grad
+            )
 
-            logger.info(f"Trainable parameters: {len(trainable_params)}")
+            # 应用冻结策略到积分引擎
+            integration_result = self.freezing_strategy.apply_all_strategies(
+                self.integration_engine
+            )
+
+            # 如果有元认知系统，也应用冻结策略
+            if self.meta_cognitive_system:
+                self.freezing_strategy.apply_all_strategies(
+                    self.meta_cognitive_system
+                )
+
+            # 记录冻结后的可训练参数数量
+            trainable_after = sum(
+                1 for param in self.integration_engine.parameters()
+                if param.requires_grad
+            )
+
+            frozen_count = trainable_before - trainable_after
+
+            logger.info(
+                f"Freezing strategy applied: "
+                f"trainable_before={trainable_before}, "
+                f"trainable_after={trainable_after}, "
+                f"frozen={frozen_count}"
+            )
+
+            # 保存冻结结果用于后续验证
+            self._freezing_result = integration_result
 
     def _create_optimizer(self) -> None:
         """创建优化器"""

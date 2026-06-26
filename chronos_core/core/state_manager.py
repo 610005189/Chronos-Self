@@ -544,6 +544,38 @@ class StateManager:
             "is_active": state_id == self._active_state_id,
         }
 
+    def reset(self, state_id: Optional[str] = None) -> None:
+        """
+        重置状态到初始状态
+
+        Args:
+            state_id: 要重置的状态 ID，如果为 None 则重置活跃状态
+        """
+        if state_id is None:
+            state_id = self._active_state_id
+
+        if state_id is None:
+            logger.warning("No active state to reset")
+            return
+
+        if state_id not in self._states:
+            logger.warning(f"State '{state_id}' not found, cannot reset")
+            return
+
+        state = self._states[state_id]
+        fast_dim = state.E_fast.shape[0]
+        slow_dim = state.E_slow.shape[0]
+
+        state.E_fast = torch.zeros(fast_dim, device=state.E_fast.device)
+        state.E_slow = torch.zeros(slow_dim, device=state.E_slow.device)
+        state.timestamp = 0.0
+        state.history = []
+
+        if state.metadata:
+            state.metadata.clear()
+
+        logger.info(f"State '{state_id}' has been reset")
+
     def __repr__(self) -> str:
         """字符串表示"""
         return (

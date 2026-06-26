@@ -599,7 +599,7 @@ class FastDynamicsFunction(DynamicsFunction):
         )
 
 
-class FastDynamicsSystem:
+class FastDynamicsSystem(nn.Module):
     """
     快变量动力学系统
 
@@ -639,6 +639,8 @@ class FastDynamicsSystem:
             meta_config: 元认知配置
             device: 计算设备
         """
+        super().__init__()
+
         self.config = config or FastDynamicsConfig()
 
         if dim_config:
@@ -669,6 +671,7 @@ class FastDynamicsSystem:
             config=self.config,
             device=self.device
         )
+        self.add_module('dynamics_fn', self.dynamics_fn)
 
         self._initialized = True
         logger.info("FastDynamicsSystem initialized")

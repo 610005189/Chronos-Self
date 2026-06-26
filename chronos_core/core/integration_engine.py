@@ -15,6 +15,7 @@
 """
 
 import torch
+import torch.nn as nn
 import numpy as np
 from typing import Optional, Dict, Tuple, List, Any
 import logging
@@ -38,6 +39,7 @@ from .fast_dynamics import FastDynamicsSystem, FastDynamicsConfig, FastDynamicsF
 from .slow_dynamics import SlowDynamicsSystem, SlowDynamicsConfig, SlowDynamicsFunction
 from .coupling import CouplingAndStabilitySystem, CouplingConfig
 from .neural_ode import NeuralODESolver, ODESolverConfig
+from .state_manager import StateManager
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,7 @@ class IntegrationEngineConfig:
     history_limit: int = 10000  # 历史记录限制
 
 
-class IntegrationEngine:
+class IntegrationEngine(nn.Module):
     """
     完整积分引擎
 
@@ -115,6 +117,8 @@ class IntegrationEngine:
             device: 计算设备
             seed: 随机种子
         """
+        super().__init__()
+
         # 配置
         self.global_config = config or ChronosConfig()
         self.engine_config = engine_config or IntegrationEngineConfig()
@@ -138,6 +142,12 @@ class IntegrationEngine:
         self.coupling_system: Optional[CouplingAndStabilitySystem] = None
         self.ode_solver: Optional[NeuralODESolver] = None
         self.dmn: Optional[DefaultModeNetwork] = None
+
+        # 状态管理器
+        self.state_manager = StateManager(
+            default_device=torch.device(self.device) if self.device else None,
+            max_history_length=self.engine_config.history_limit
+        )
 
         # 状态缓存
         self._current_E_fast_prev: Optional[torch.Tensor] = None
@@ -181,6 +191,7 @@ class IntegrationEngine:
             device=self.device
         )
         self.fast_dynamics.initialize()
+        self.add_module('fast_dynamics', self.fast_dynamics)
 
         # 创建慢变量动力学系统
         self.slow_dynamics = SlowDynamicsSystem(
@@ -190,6 +201,7 @@ class IntegrationEngine:
             device=self.device
         )
         self.slow_dynamics.initialize()
+        self.add_module('slow_dynamics', self.slow_dynamics)
 
         # 创建耦合与稳定性系统
         self.coupling_system = CouplingAndStabilitySystem(
@@ -299,7 +311,7 @@ class IntegrationEngine:
         if self.engine_config.auto_stability_actions and stability_report.get("actions_taken"):
             self.coupling_system.apply_stability_actions(
                 stability_report["actions_taken"],
-                state_manager=self
+                state_manager=self.state_manager
             )
 
         # 8. 创建新状态
@@ -639,6 +651,12 @@ class IntegrationEngine:
             self.dmn.reset()
         if self.ode_solver:
             self.ode_solver.reset()
+
+        # 重置状态管理器
+        if self.state_manager:
+            active_state_id = self.state_manager._active_state_id
+            if active_state_id:
+                self.state_manager.reset(active_state_id)
 
         # 重置统计
         self.step_count = 0

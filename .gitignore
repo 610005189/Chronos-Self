@@ -36,6 +36,7 @@ venv.bak/
 # IDEs
 .vscode/
 .idea/
+.trae/
 *.swp
 *.swo
 *~
@@ -52,6 +53,13 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Linting
+.ruff_cache/
+
+# Pre-commit
+.pre-commit-config.yaml
+.pre-commit/
 
 # Jupyter Notebooks
 .ipynb_checkpoints
@@ -70,6 +78,7 @@ logs/
 data/
 checkpoints/
 vector_db/
+test_vector_db/
 *.pt
 *.pth
 *.ckpt
@@ -89,9 +98,9 @@ Thumbs.db
 Desktop.ini
 
 # Project Specific
-runs/  # Tensorboard logs
+runs/
 results/
-configs/*.json  # User config files, but keep template
+configs/*.json
 !configs/default_config.json
 
 # Secrets and Environment
@@ -108,3 +117,7 @@ secrets/
 *.exe
 *.out
 *.app
+
+# Root level test files
+test_core.py
+test_logical_encoder.py
