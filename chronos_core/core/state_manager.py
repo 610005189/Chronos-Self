@@ -327,6 +327,15 @@ class StateManager:
 
         return self._states.get(self._active_state_id)
 
+    def get_active_state_id(self) -> Optional[str]:
+        """
+        获取当前活跃状态的 ID
+
+        Returns:
+            活跃状态的 ID，如果没有则返回 None
+        """
+        return self._active_state_id
+
     def set_active_state(self, state_id: str):
         """
         设置活跃状态

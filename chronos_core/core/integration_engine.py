@@ -654,7 +654,7 @@ class IntegrationEngine(nn.Module):
 
         # 重置状态管理器
         if self.state_manager:
-            active_state_id = self.state_manager._active_state_id
+            active_state_id = self.state_manager.get_active_state_id()
             if active_state_id:
                 self.state_manager.reset(active_state_id)
 
