@@ -79,16 +79,16 @@ class CouplingStabilityConfig:
     coupling_adaptation_coeff: float = 1.0
     
     # Elastic restoration coefficient (γ) - baseline return strength
-    elastic_restoration_coeff: float = 0.001
+    elastic_restoration_coeff: float = 0.01
     
     # L2 perturbation noise (σ_C) - for regularization
-    l2_perturbation_noise: float = 0.1
+    l2_perturbation_noise: float = 0.05
     
     # Anti-quietus weight (λ) - prevents state collapse
-    anti_quietus_weight: float = 0.01
+    anti_quietus_weight: float = 0.1
     
     # Inertia weight (μ) - maintains state continuity
-    inertia_weight: float = 0.001
+    inertia_weight: float = 0.01
     
     # Coupling strength upper bound
     coupling_upper_bound: float = 10.0
@@ -124,7 +124,7 @@ class ChaosInjectionConfig:
     attractor_switch_interval: int = 5000
     
     # Chaos injection gain (controls influence on dynamics)
-    chaos_injection_gain: float = 0.1
+    chaos_injection_gain: float = 0.01
     
     # Transition smoothing factor for attractor switching
     attractor_transition_smoothing: float = 0.95

@@ -428,7 +428,7 @@ class BehavioralMetrics:
         intent_detected = self._detect_intent_flow(intent_entropy_history)
 
         # 判断是否通过（熵增长或意图流检测）
-        passed = (
+        passed = bool(
             growth_rate > self.config.intent_entropy_threshold or
             intent_detected
         )
@@ -639,7 +639,7 @@ class BehavioralMetrics:
             transfer_rate = 0.0
 
         # 判断是否通过（迁移率显著正值）
-        passed = (
+        passed = bool(
             transfer_rate > self.config.transfer_score_threshold and
             after_a_score > baseline_score * 1.2  # 至少20%提升
         )
@@ -823,7 +823,7 @@ class BehavioralMetrics:
         is_sigmoid = self._check_sigmoid_recovery(recovery_curve, verbose)
 
         # 判断是否通过
-        passed = (
+        passed = bool(
             recovery_time < self.config.l2_recovery_threshold and
             final_recovery_rate > self.config.l2_recovery_target and
             is_sigmoid

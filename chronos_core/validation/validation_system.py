@@ -859,7 +859,7 @@ class ValidationSystem:
                 report += "- P0级核心动力学验证\n"
             if result.p1_result and not result.p1_passed:
                 report += "- P1级功能模块验证\n"
-            if result.p2_result and not result.p2_passed:
+            if (result.dynamics_result or result.behavioral_result) and not result.p2_passed:
                 report += "- P2级涌现判定验证\n"
 
         return report

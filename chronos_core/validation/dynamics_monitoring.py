@@ -373,7 +373,7 @@ class DynamicsMonitoring:
                     rho = autocorr_normalized[tau_mid]
 
                     # 检查是否满足阈值
-                    passed = rho > self.config.autocorrelation_min_threshold
+                    passed = bool(rho > self.config.autocorrelation_min_threshold)
 
                     return {
                         "rho": float(rho),
@@ -459,7 +459,7 @@ class DynamicsMonitoring:
                 lambda_max = (1.0 / time_elapsed) * np.log(delta_t / delta_0)
 
                 # 检查是否在边缘混沌区间
-                passed = (
+                passed = bool(
                     lambda_max > self.config.lyapunov_min_threshold and
                     lambda_max < self.config.lyapunov_max_threshold
                 )
@@ -554,7 +554,7 @@ class DynamicsMonitoring:
             current_error = errors[-1]
 
             # 检查是否在稳态区间
-            passed = (
+            passed = bool(
                 error_mean > self.config.self_prediction_epsilon_min and
                 error_mean < self.config.self_prediction_epsilon_max
             )

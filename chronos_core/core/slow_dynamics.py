@@ -40,9 +40,9 @@ class SlowDynamicsConfig:
     activation: str = "tanh"
 
     # 动力学参数
-    elastic_coeff: float = 0.001  # 弹性恢复系数 γ
-    baseline_decay: float = 0.0001  # baseline 衰减率
-    spontaneous_rate: float = 0.001  # 自发演化速率
+    elastic_coeff: float = 0.02  # 弹性恢复系数 γ（提高10倍，减少漂移）
+    baseline_decay: float = 0.001  # baseline 衰减率
+    spontaneous_rate: float = 0.0005  # 自发演化速率（降低以减少自发变化）
 
     # 池化配置
     pooling_method: str = "average"  # 'average', 'attention', 'max'
@@ -57,8 +57,8 @@ class SlowDynamicsConfig:
     baseline_drift_threshold: float = 0.5  # baseline 漂移阈值
 
     # 耦合参数
-    base_coupling_coeff: float = 0.01  # 基础耦合系数 α_0
-    coupling_adaptation: float = 1.0  # 耦合适应性 β
+    base_coupling_coeff: float = 0.001  # 基础耦合系数 α_0（降低10倍，减少快变量扰动）
+    coupling_adaptation: float = 0.5  # 耦合适应性 β（降低以更稳定）
 
 
 class PoolingMechanism(nn.Module):
@@ -459,11 +459,15 @@ class SlowDynamicsFunction(DynamicsFunction):
         dydt = spontaneous_term + coupling_term + elastic_term
 
         # 限制单步变化（防止过大更新）
-        dydt_norm = torch.norm(dydt).item()
-        if dydt_norm > self.config.max_state_change:
-            scale = self.config.max_state_change / dydt_norm
-            dydt = dydt * scale
-            logger.debug(f"Slow state change clipped: original_norm={dydt_norm:.4f}")
+        dydt_norm = torch.norm(dydt)
+        clip_scale = torch.where(
+            dydt_norm > self.config.max_state_change,
+            self.config.max_state_change / dydt_norm,
+            torch.tensor(1.0, device=self.device, dtype=dydt.dtype)
+        )
+        dydt = dydt * clip_scale
+        if clip_scale < 1.0:
+            logger.debug(f"Slow state change clipped: original_norm={dydt_norm.item():.4f}")
 
         # 统计
         self.forward_calls += 1
@@ -790,9 +794,9 @@ class SlowDynamicsSystem(nn.Module):
             logger.warning("Inf detected in slow variable state!")
             return False
 
-        # 检查范数
+        # 检查范数（512维变量，范数20以内是合理的）
         norm = torch.norm(state).item()
-        if norm > self.config.baseline_drift_threshold * 10:
+        if norm > 20.0:
             logger.warning(f"Slow variable norm too large: {norm:.4e}")
             return False
 

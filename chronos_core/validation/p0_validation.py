@@ -184,8 +184,8 @@ class P0Validation:
         self.global_config = config or ChronosConfig()
         self.config = p0_config or P0ValidationConfig()
 
-        # 合并全局配置
-        if hasattr(self.global_config, 'validation'):
+        # 合并全局配置（仅在用户未显式传入 p0_config 时覆盖）
+        if p0_config is None and hasattr(self.global_config, 'validation'):
             self.config.open_loop_hours = self.global_config.validation.p0_open_loop_hours
             self.config.max_baseline_drift_rate = self.global_config.validation.p0_max_baseline_drift
 
@@ -652,7 +652,7 @@ class P0Validation:
             lyapunov_max = lyapunov_min = lyapunov_mean = lyapunov_std = 0.0
 
         # 检查是否在边缘混沌区间 (0, 0.1)
-        passed = (
+        passed = bool(
             lyapunov_mean > self.config.lyapunov_min_threshold and
             lyapunov_mean < self.config.lyapunov_max_threshold
         )

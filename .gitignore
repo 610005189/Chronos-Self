@@ -36,7 +36,6 @@ venv.bak/
 # IDEs
 .vscode/
 .idea/
-.trae/
 *.swp
 *.swo
 *~
@@ -100,8 +99,15 @@ Desktop.ini
 # Project Specific
 runs/
 results/
+validation_results*
+validation_tuned*
 configs/*.json
 !configs/default_config.json
+
+# Temporary scripts (moved to scripts/)
+scripts/test_core.py
+scripts/test_logical_encoder.py
+scripts/run_validation.py
 
 # Secrets and Environment
 .env
@@ -118,6 +124,4 @@ secrets/
 *.out
 *.app
 
-# Root level test files
-test_core.py
-test_logical_encoder.py
+# Root level test files (moved to scripts/)

@@ -1,0 +1,25 @@
+- [ ] Checkpoint 1: 范数裁剪日志频率限制已添加
+- [ ] Checkpoint 2: 系统稳定性参数已优化
+- [ ] Checkpoint 3: 快速验证模式执行成功
+- [ ] Checkpoint 4: P0级验证通过（开环运行、漂移率、李雅普诺夫指数、动力学对齐）
+- [ ] Checkpoint 5: 验证时间不超过5分钟（快速模式）
+- [ ] Checkpoint 6: JSON验证报告已生成
+- [ ] Checkpoint 7: Markdown验证报告已生成
+- [ ] Checkpoint 8: 完整验证模式执行成功
+- [ ] Checkpoint 9: P1级功能模块验证完成
+- [ ] Checkpoint 10: P2级涌现判定完成
+- [ ] Checkpoint 11: 系统无崩溃或异常终止
+- [ ] Checkpoint 12: 快变量范数稳定在阈值内
+- [ ] Checkpoint 13: 慢变量范数保持稳定
+- [ ] Checkpoint 14: 混沌注入功能正常
+- [ ] Checkpoint 15: 李雅普诺夫指数处于边缘混沌区间(0, 0.1)
+- [ ] Checkpoint 16: 动力学对齐误差小于阈值
+- [ ] Checkpoint 17: 验证结果汇总输出清晰
+- [ ] Checkpoint 18: 日志文件大小合理（不超过10MB）
+- [ ] Checkpoint 19: 验证报告包含所有关键指标
+- [ ] Checkpoint 20: 系统状态在验证过程中始终有效
+- [ ] Checkpoint 21: 稳定性监测机制正常工作
+- [ ] Checkpoint 22: 耦合系数自适应调整正常
+- [ ] Checkpoint 23: 状态管理器功能正常
+- [ ] Checkpoint 24: 积分引擎初始化和重置正常
+- [ ] Checkpoint 25: 验证系统整体通过

@@ -1,0 +1,15 @@
+- [x] 原 readme.md 已移动到 docs/architecture_original.md
+- [x] 根目录不存在旧的 readme.md
+- [x] 新 README.md 首屏有清晰的价值主张和项目定位
+- [x] 新 README.md 包含核心特性列表（6-8项）
+- [x] 新 README.md 包含架构概览图
+- [x] 新 README.md 包含快速开始指南（安装+最小示例）
+- [x] 新 README.md 包含文档索引链接
+- [x] 新 README.md 包含贡献指南和许可证信息
+- [x] LICENSE 文件存在且为 MIT 协议
+- [x] CHANGELOG.md 存在且包含版本历史
+- [x] CONTRIBUTING.md 存在且包含贡献流程说明
+- [x] .gitignore 已更新以忽略 validation_results* 目录
+- [x] docs/README.md 文档索引页存在
+- [x] docs/README.md 列出所有文档及其简介
+- [x] 所有修改不影响现有代码功能

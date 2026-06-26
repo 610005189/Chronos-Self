@@ -47,8 +47,8 @@ class FastDynamicsConfig:
     activation: str = "tanh"  # 'relu', 'tanh', 'gelu', 'silu'
 
     # 动力学参数
-    decay_rate: float = 0.001  # 自然衰减率
-    noise_scale: float = 0.01  # 内部噪声强度
+    decay_rate: float = 0.85  # 自然衰减率（大幅提高以增强稳定性）
+    noise_scale: float = 0.00001  # 内部噪声强度（大幅降低以减少扰动）
 
     # 稳定性参数
     max_gradient_norm: float = 10.0  # 梯度裁剪
@@ -498,6 +498,18 @@ class FastDynamicsFunction(DynamicsFunction):
         # dE_fast/dt = F_θ(...) + decay * E_fast
         dydt = F_output + decay_output
 
+        # 添加范数依赖衰减（更强的稳定化）
+        # 当范数超过阈值的一半时，添加额外的衰减
+        norm = torch.norm(y, dim=-1, keepdim=True)
+        threshold_half = self.config.state_norm_threshold * 0.5
+        extra_decay_factor = torch.where(
+            norm > threshold_half,
+            (norm - threshold_half) / threshold_half,
+            torch.zeros_like(norm)
+        )
+        extra_decay_factor = torch.clamp(extra_decay_factor, min=0.0, max=2.0)
+        dydt = dydt - extra_decay_factor * y
+
         # 添加内部噪声（可选）
         if self.config.noise_scale > 0:
             noise = torch.randn_like(dydt) * self.config.noise_scale
@@ -505,10 +517,15 @@ class FastDynamicsFunction(DynamicsFunction):
 
         # 梯度裁剪（防止过大导数）
         dydt_norm = torch.norm(dydt, dim=-1, keepdim=True)
-        if dydt_norm.max() > self.config.max_gradient_norm:
-            scale = self.config.max_gradient_norm / dydt_norm.max()
-            dydt = dydt * scale
-            logger.debug(f"Gradient clipped: original_norm={dydt_norm.max().item():.4f}")
+        max_dydt_norm = dydt_norm.max()
+        clip_scale = torch.where(
+            max_dydt_norm > self.config.max_gradient_norm,
+            self.config.max_gradient_norm / max_dydt_norm,
+            torch.tensor(1.0, device=self.device, dtype=dydt.dtype)
+        )
+        dydt = dydt * clip_scale
+        if clip_scale.item() < 1.0:
+            logger.debug(f"Gradient clipped: original_norm={max_dydt_norm.item():.4f}")
 
         # 统计
         self.forward_calls += 1
@@ -659,6 +676,12 @@ class FastDynamicsSystem(nn.Module):
         # 初始化标志
         self._initialized = False
 
+        # 日志频率控制
+        self._clip_log_interval = 100  # 每100步输出一次范数裁剪日志
+        self._clip_log_counter = 0
+        self._stability_log_interval = 50  # 每50步输出一次稳定性警告日志
+        self._stability_log_counter = 0
+
         logger.info(
             f"FastDynamicsSystem created: fast_dim={self.config.fast_dim}, "
             f"device={self.device}"
@@ -723,6 +746,17 @@ class FastDynamicsSystem(nn.Module):
 
         # 欧拉更新
         E_fast_new = E_fast + dt * dydt
+
+        # 状态范数裁剪（防止发散）
+        norm = torch.norm(E_fast_new).item()
+        if norm > self.config.state_norm_threshold:
+            scale = self.config.state_norm_threshold / norm
+            E_fast_new = E_fast_new * scale
+            # 限制日志输出频率
+            self._clip_log_counter += 1
+            if self._clip_log_counter >= self._clip_log_interval:
+                logger.info(f"State norm clipped: {norm:.4e} -> {self.config.state_norm_threshold}")
+                self._clip_log_counter = 0
 
         # 稳定性检查
         self._check_stability(E_fast_new)
@@ -796,7 +830,7 @@ class FastDynamicsSystem(nn.Module):
 
     def _check_stability(self, state: torch.Tensor) -> bool:
         """检查状态稳定性"""
-        # 检查 NaN 和 Inf
+        # 检查 NaN 和 Inf（始终输出）
         if torch.isnan(state).any():
             logger.warning("NaN detected in fast variable state!")
             return False
@@ -805,10 +839,13 @@ class FastDynamicsSystem(nn.Module):
             logger.warning("Inf detected in fast variable state!")
             return False
 
-        # 检查范数
+        # 检查范数（限制日志频率）
         norm = torch.norm(state).item()
         if norm > self.config.state_norm_threshold:
-            logger.warning(f"Fast variable norm too large: {norm:.4e}")
+            self._stability_log_counter += 1
+            if self._stability_log_counter >= self._stability_log_interval:
+                logger.warning(f"Fast variable norm too large: {norm:.4e}")
+                self._stability_log_counter = 0
             return False
 
         return True
@@ -831,6 +868,10 @@ class FastDynamicsSystem(nn.Module):
         self.time_history.clear()
         if self.dynamics_fn:
             self.dynamics_fn.reset_cache()
+
+        # 重置日志计数器
+        self._clip_log_counter = 0
+        self._stability_log_counter = 0
 
         logger.info("FastDynamicsSystem reset")
 
