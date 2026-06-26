@@ -459,15 +459,16 @@ class SlowDynamicsFunction(DynamicsFunction):
         dydt = spontaneous_term + coupling_term + elastic_term
 
         # 限制单步变化（防止过大更新）
-        dydt_norm = torch.norm(dydt)
+        dydt_norm = torch.norm(dydt, dim=-1, keepdim=True)
         clip_scale = torch.where(
             dydt_norm > self.config.max_state_change,
             self.config.max_state_change / dydt_norm,
-            torch.tensor(1.0, device=self.device, dtype=dydt.dtype)
+            torch.ones_like(dydt_norm)
         )
         dydt = dydt * clip_scale
-        if clip_scale < 1.0:
-            logger.debug(f"Slow state change clipped: original_norm={dydt_norm.item():.4f}")
+        max_norm = dydt_norm.max().item()
+        if max_norm > self.config.max_state_change:
+            logger.debug(f"Slow state change clipped: max_original_norm={max_norm:.4f}")
 
         # 统计
         self.forward_calls += 1

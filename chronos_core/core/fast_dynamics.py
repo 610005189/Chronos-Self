@@ -517,15 +517,15 @@ class FastDynamicsFunction(DynamicsFunction):
 
         # 梯度裁剪（防止过大导数）
         dydt_norm = torch.norm(dydt, dim=-1, keepdim=True)
-        max_dydt_norm = dydt_norm.max()
         clip_scale = torch.where(
-            max_dydt_norm > self.config.max_gradient_norm,
-            self.config.max_gradient_norm / max_dydt_norm,
-            torch.tensor(1.0, device=self.device, dtype=dydt.dtype)
+            dydt_norm > self.config.max_gradient_norm,
+            self.config.max_gradient_norm / dydt_norm,
+            torch.ones_like(dydt_norm)
         )
         dydt = dydt * clip_scale
-        if clip_scale.item() < 1.0:
-            logger.debug(f"Gradient clipped: original_norm={max_dydt_norm.item():.4f}")
+        max_norm = dydt_norm.max().item()
+        if max_norm > self.config.max_gradient_norm:
+            logger.debug(f"Gradient clipped: max_original_norm={max_norm:.4f}")
 
         # 统计
         self.forward_calls += 1
