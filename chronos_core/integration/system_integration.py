@@ -1,6 +1,6 @@
 """
-完整系统集成（System Integration）
-=====================================
+系统集成（System Integration）
+==============================
 
 整合所有核心组件，实现完整的系统流程：
 - 输入：外部输入（文本、环境状态等）
@@ -10,7 +10,7 @@
 - 输出：系统响应（行为输出、状态报告）
 
 核心功能：
-1. 整合所有核心组件（表征系统、积分引擎、元认知、反思、训练、验证）
+1. 整合所有核心组件（表征系统、积分引擎、元认知模块、反思模块、训练、验证模块）
 2. 实现完整系统流程（输入→积分→输出）
 3. 实现系统控制器（启动、运行、停止、生命周期管理）
 4. 提供统一接口（处理输入、获取状态、生成输出）
@@ -57,18 +57,18 @@ from chronos_core.core.external_input import ExternalInput
 from chronos_core.core.integration_engine import IntegrationEngine
 from chronos_core.core.dmn_system import DefaultModeNetwork
 from chronos_core.core.meta_cognitive.meta_cognitive_system import (
-    MetaCognitiveSystem,
-    MetaCognitiveSystemConfig,
+    MetaCognitive,
+    MetaCognitiveConfig,
 )
 from chronos_core.core.reflection.reflection_system import (
-    ReflectionSystem,
-    ReflectionSystemConfig,
+    Reflection,
+    ReflectionConfig,
 )
 from chronos_core.memory.work_memory import WorkingMemory, ChunkType
 from chronos_core.training.training_system import TrainingSystem, TrainingSystemConfig
 from chronos_core.validation.validation_system import (
-    ValidationSystem,
-    ValidationSystemConfig,
+    Validation,
+    ValidationConfig,
     ValidationMode,
 )
 from chronos_core.representation.semantic_encoder import SemanticEncoder, create_semantic_encoder
@@ -253,10 +253,10 @@ class ChronosSystem:
     2. 积分引擎（IntegrationEngine）
     3. 默认模式网络（DefaultModeNetwork）
     4. 工作记忆（WorkingMemory）
-    5. 元认知系统（MetaCognitiveSystem）
-    6. 反思系统（ReflectionSystem）
+    5. 元认知模块（MetaCognitive）
+    6. 反思模块（Reflection）
     7. 训练系统（TrainingSystem）
-    8. 验证系统（ValidationSystem）
+    8. 验证模块（Validation）
     
     系统流程：
     输入 → 双通道编码 → 融合 → 积分引擎演化 → 元认知调控 → 反思修正 → 输出
@@ -313,10 +313,10 @@ class ChronosSystem:
         self.integration_engine: Optional[IntegrationEngine] = None
         self.dmn: Optional[DefaultModeNetwork] = None
         self.working_memory: Optional[WorkingMemory] = None
-        self.meta_cognitive_system: Optional[MetaCognitiveSystem] = None
-        self.reflection_system: Optional[ReflectionSystem] = None
+        self.meta_cognitive: Optional[MetaCognitive] = None
+        self.reflection: Optional[Reflection] = None
         self.training_system: Optional[TrainingSystem] = None
-        self.validation_system: Optional[ValidationSystem] = None
+        self.validation: Optional[Validation] = None
         
         # 当前状态
         self._current_self_state: Optional[SelfState] = None
@@ -413,30 +413,30 @@ class ChronosSystem:
                 )
                 self.fusion_module.to(self.device)
             
-            # 7. 初始化元认知系统
-            logger.info("[7/8] 初始化元认知系统...")
+            # 7. 初始化元认知模块
+            logger.info("[7/8] 初始化元认知模块...")
             if self.config.enable_meta_cognitive:
-                self.meta_cognitive_system = MetaCognitiveSystem(
+                self.meta_cognitive = MetaCognitive(
                     global_config=self.global_config,
                     device=self.device
                 )
             
-            # 8. 初始化反思系统
-            logger.info("[8/8] 初始化反思系统...")
+            # 8. 初始化反思模块
+            logger.info("[8/8] 初始化反思模块...")
             if self.config.enable_reflection:
-                reflection_config = ReflectionSystemConfig(
+                reflection_config = ReflectionConfig(
                     enable_realtime_reflection=self.config.enable_realtime_reflection,
                     enable_sleep_replay=self.config.enable_sleep_replay,
                     fast_dim=self.global_config.dim.fast_variable_dim,
                     slow_dim=self.global_config.dim.slow_variable_dim,
                 )
-                self.reflection_system = ReflectionSystem(
+                self.reflection = Reflection(
                     config=reflection_config,
                     global_config=self.global_config,
                     integration_engine=self.integration_engine,
                     device=self.device
                 )
-                self.reflection_system.initialize(self.integration_engine)
+                self.reflection.initialize(self.integration_engine)
             
             # 初始化训练系统（可选）
             if self.config.enable_training_system:
@@ -444,16 +444,16 @@ class ChronosSystem:
                 self.training_system = TrainingSystem(
                     global_config=self.global_config,
                     integration_engine=self.integration_engine,
-                    reflection_system=self.reflection_system,
-                    meta_cognitive_system=self.meta_cognitive_system,
+                    reflection_system=self.reflection,
+                    meta_cognitive_system=self.meta_cognitive,
                     device=self.device
                 )
                 self.training_system.initialize()
             
-            # 初始化验证系统（可选）
+            # 初始化验证模块（可选）
             if self.config.enable_validation_system:
-                logger.info("[可选] 初始化验证系统...")
-                self.validation_system = ValidationSystem(
+                logger.info("[可选] 初始化验证模块...")
+                self.validation = Validation(
                     config=self.global_config,
                     device=self.device
                 )
@@ -605,9 +605,9 @@ class ChronosSystem:
         
         # 4. 获取元认知调控信号
         meta_cognitive_signal = None
-        if apply_meta_cognitive and self.meta_cognitive_system is not None:
+        if apply_meta_cognitive and self.meta_cognitive is not None:
             # 运行元认知循环
-            meta_output = self.meta_cognitive_system.forward(
+            meta_output = self.meta_cognitive.forward(
                 semantic_input=X_sem if X_sem is not None else torch.zeros(self.global_config.dim.semantic_dim, device=self.device),
                 physical_input=X_log if X_log is not None else torch.zeros(self.global_config.dim.physical_dim, device=self.device),
                 dt=dt,
@@ -637,8 +637,8 @@ class ChronosSystem:
             )
         
         # 6. 反思修正
-        if apply_reflection and self.reflection_system is not None:
-            reflection_result = self.reflection_system.add_online_step(
+        if apply_reflection and self.reflection is not None:
+            reflection_result = self.reflection.add_online_step(
                 state=self._current_self_state,
                 inputs=external_input,
                 metadata={"text": text}
@@ -690,7 +690,7 @@ class ChronosSystem:
         if self._system_state.total_steps % self.config.performance_log_interval == 0:
             self._log_performance()
         
-        logger.info(
+        logger.debug(
             f"输入处理完成: "
             f"step={self._system_state.total_steps}, "
             f"time={processing_time:.2f}ms, "
@@ -771,7 +771,7 @@ class ChronosSystem:
     
     def _log_performance(self) -> None:
         """记录性能日志"""
-        logger.info(
+        logger.debug(
             f"[性能监控] "
             f"steps={self._system_state.total_steps}, "
             f"avg_time={self._system_state.avg_step_time_ms:.2f}ms, "
@@ -799,10 +799,10 @@ class ChronosSystem:
                 "integration_engine": self.integration_engine is not None,
                 "dmn": self.dmn is not None,
                 "working_memory": self.working_memory is not None,
-                "meta_cognitive_system": self.meta_cognitive_system is not None,
-                "reflection_system": self.reflection_system is not None,
+                "meta_cognitive": self.meta_cognitive is not None,
+                "reflection": self.reflection is not None,
                 "training_system": self.training_system is not None,
-                "validation_system": self.validation_system is not None,
+                "validation": self.validation is not None,
             },
             "performance": {
                 "avg_step_time_ms": self._system_state.avg_step_time_ms,
@@ -819,11 +819,11 @@ class ChronosSystem:
         if self.integration_engine:
             stats["integration_engine_stats"] = self.integration_engine.get_state_monitoring()
         
-        if self.meta_cognitive_system:
-            stats["meta_cognitive_stats"] = self.meta_cognitive_system.get_statistics()
+        if self.meta_cognitive:
+            stats["meta_cognitive_stats"] = self.meta_cognitive.get_statistics()
         
-        if self.reflection_system:
-            stats["reflection_stats"] = self.reflection_system.get_statistics()
+        if self.reflection:
+            stats["reflection_stats"] = self.reflection.get_statistics()
         
         if self.working_memory:
             stats["working_memory_stats"] = self.working_memory.get_statistics()
@@ -848,18 +848,18 @@ class ChronosSystem:
         if not self._initialized:
             raise ValueError("系统未初始化")
         
-        if self.validation_system is None:
-            raise ValueError("验证系统未启用")
-        
+        if self.validation is None:
+            raise ValueError("验证模块未启用")
+
         # 更新系统状态
         old_status = self._system_state.status
         self._system_state.status = SystemStatus.RUNNING
         self._system_state.operation_mode = OperationMode.VALIDATION
-        
+
         logger.info("开始验证...")
-        
+
         # 执行验证
-        result = self.validation_system.run_validation(
+        result = self.validation.run_validation(
             engine=self.integration_engine,
             mode=mode,
             initial_state=self._current_self_state,
@@ -932,17 +932,17 @@ class ChronosSystem:
         if not self._initialized:
             raise ValueError("系统未初始化")
         
-        if self.reflection_system is None:
-            raise ValueError("反思系统未启用")
-        
+        if self.reflection is None:
+            raise ValueError("反思模块未启用")
+
         # 更新系统状态
         old_status = self._system_state.status
         self._system_state.status = SystemStatus.SLEEPING
-        
+
         logger.info("触发睡眠重放...")
-        
+
         # 执行睡眠
-        result = self.reflection_system.perform_sleep(force=force)
+        result = self.reflection.perform_sleep(force=force)
         
         # 更新统计
         self._system_state.sleep_count += 1
@@ -1014,11 +1014,11 @@ class ChronosSystem:
         if self.working_memory:
             self.working_memory.clear()
         
-        if self.meta_cognitive_system:
-            self.meta_cognitive_system.reset()
+        if self.meta_cognitive:
+            self.meta_cognitive.reset()
         
-        if self.reflection_system:
-            self.reflection_system.reset()
+        if self.reflection:
+            self.reflection.reset()
         
         if self.training_system:
             self.training_system.reset()

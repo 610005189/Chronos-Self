@@ -662,7 +662,7 @@ class FusionModule(nn.Module):
         # (if fusion_dim != sem_dim + log_dim)
         if fusion_dim != sem_dim + log_dim:
             self.output_projection = nn.Linear(sem_dim + log_dim, fusion_dim)
-            logger.info(f"Output projection: {sem_dim + log_dim} -> {fusion_dim}")
+            logger.debug(f"Output projection: {sem_dim + log_dim} -> {fusion_dim}")
         else:
             self.output_projection = None
 
@@ -832,7 +832,7 @@ class FusionModule(nn.Module):
         # Concatenate all batches and remove sequence dimension
         fused_vectors = torch.cat(fused_results, dim=0).squeeze(1)  # (total_samples, fusion_dim)
 
-        logger.info(f"Fused {total_samples} vectors in {(total_samples + batch_size - 1) // batch_size} batches")
+        logger.debug(f"Fused {total_samples} vectors in {(total_samples + batch_size - 1) // batch_size} batches")
 
         return fused_vectors
 

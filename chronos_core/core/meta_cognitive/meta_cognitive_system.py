@@ -1,8 +1,8 @@
 """
-完整元认知系统 - Meta-Cognitive System
-======================================
+元认知模块 - Meta-Cognitive Module
+==================================
 
-Phase 5 最终整合：实现完整的 L0-L1-L2 三层元认知调控系统。
+实现完整的 L0-L1-L2 三层元认知调控模块。
 
 核心功能：
 - 整合 L0、L1、L2 三层结构
@@ -65,8 +65,8 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MetaCognitiveSystemConfig:
-    """完整元认知系统配置"""
+class MetaCognitiveConfig:
+    """元认知模块配置"""
     
     # 系统层级配置
     use_l0: bool = True                     # 是否使用 L0 感知层
@@ -95,11 +95,11 @@ class MetaCognitiveSystemConfig:
     device: str = "cpu"
 
 
-class MetaCognitiveSystem(nn.Module):
+class MetaCognitive(nn.Module):
     """
-    完整元认知系统
+    元认知模块
     
-    Phase 5 最终整合
+    整合 L0、L1、L2 三层结构，实现完整的元认知调控功能。
     
     功能：
     - 整合 L0、L1、L2 三层结构
@@ -117,20 +117,20 @@ class MetaCognitiveSystem(nn.Module):
     
     def __init__(
         self,
-        config: Optional[MetaCognitiveSystemConfig] = None,
+        config: Optional["MetaCognitiveConfig"] = None,
         dim_config: Optional[DimensionalityConfig] = None,
-        meta_config: Optional[MetaCognitiveConfig] = None,
+        meta_cognitive_config: Optional[MetaCognitiveConfig] = None,
         memory_config: Optional[MemoryTemporalConfig] = None,
         global_config: Optional[ChronosConfig] = None,
         device: Optional[str] = None
     ):
         """
-        初始化完整元认知系统
+        初始化元认知模块
         
         Args:
-            config: 系统配置
+            config: 模块配置
             dim_config: 维度配置
-            meta_config: 元认知配置
+            meta_cognitive_config: 元认知配置（全局配置中的）
             memory_config: 内存配置
             global_config: 全局配置
             device: 计算设备
@@ -138,17 +138,17 @@ class MetaCognitiveSystem(nn.Module):
         super().__init__()
         
         # 合并配置
-        self.config = config or MetaCognitiveSystemConfig()
+        self.config = config or MetaCognitiveConfig()
         self.global_config = global_config
         
         # 从 global_config 提取配置（如果提供了）
         if global_config:
             self.dim_config = dim_config or global_config.dim
-            self.meta_config = meta_config or global_config.meta_cognitive
+            self.meta_config = meta_cognitive_config or global_config.meta_cognitive
             self.memory_config = memory_config or global_config.memory_temporal
         else:
             self.dim_config = dim_config or DimensionalityConfig()
-            self.meta_config = meta_config or MetaCognitiveConfig()
+            self.meta_config = meta_cognitive_config or MetaCognitiveConfig()
             self.memory_config = memory_config or MemoryTemporalConfig()
         
         self.device = device or self.config.device
@@ -502,7 +502,7 @@ class MetaCognitiveSystem(nn.Module):
             # 记录状态信息
             state_info = self._build_state_info()
             
-            logger.info(
+            logger.debug(
                 f"System state at step {self._current_step}: "
                 f"l0_output_norm={state_info['l0_output_norm']:.4f}, "
                 f"l1_fast_norm={state_info['l1_fast_norm']:.4f}, "
@@ -859,38 +859,8 @@ class MetaCognitiveSystem(nn.Module):
         """获取统计信息"""
         stats = self._stats.copy()
         
-        # 添加各层统计
-        if self.l0_layer:
-            stats["l0_stats"] = self.l0_layer.get_statistics()
-        
-        if self.l1_layer:
-            stats["l1_stats"] = self.l1_layer.get_statistics()
-        
-        if self.l2_layer:
-            stats["l2_stats"] = self.l2_layer.get_statistics()
-        
-        # 添加管理器统计
-        if self.manager:
-            stats["manager_stats"] = self.manager.get_statistics()
-        
-        # 添加系统状态
-        stats["system_state"] = {
-            "current_step": self._current_step,
-            "ablation_active": self._ablation_active,
-            "l0_output_cached": self._l0_output_cache is not None,
-            "l1_state_cached": self._l1_state_cache is not None,
-            "l2_control_cached": self._l2_control_cache is not None,
-        }
-        
-        # 添加配置信息
-        stats["config"] = {
-            "use_l0": self.config.use_l0,
-            "use_l1": self.config.use_l1,
-            "use_l2": self.config.use_l2,
-            "regulation_cycle_interval": self.config.regulation_cycle_interval,
-            "regulation_enabled": self.config.regulation_enabled,
-            "ablation_test_enabled": self.config.ablation_test_enabled,
-        }
+        stats["current_step"] = self._current_step
+        stats["ablation_active"] = self._ablation_active
         
         return stats
     
@@ -940,7 +910,7 @@ class MetaCognitiveSystem(nn.Module):
     
     def __repr__(self) -> str:
         return (
-            f"MetaCognitiveSystem("
+            f"MetaCognitive("
             f"step={self._current_step}, "
             f"use_l0={self.config.use_l0}, "
             f"use_l1={self.config.use_l1}, "
@@ -949,31 +919,36 @@ class MetaCognitiveSystem(nn.Module):
         )
 
 
-def create_meta_cognitive_system_from_config(
+def create_meta_cognitive_from_config(
     global_config: ChronosConfig,
     device: Optional[str] = None
-) -> MetaCognitiveSystem:
+) -> MetaCognitive:
     """
-    从全局配置创建元认知系统
+    从全局配置创建元认知模块
     
     Args:
         global_config: 全局配置
         device: 计算设备
     
     Returns:
-        MetaCognitiveSystem 实例
+        MetaCognitive 实例
     """
-    system_config = MetaCognitiveSystemConfig(
+    config = MetaCognitiveConfig(
         device=device or global_config.device,
     )
     
-    system = MetaCognitiveSystem(
-        config=system_config,
+    module = MetaCognitive(
+        config=config,
         dim_config=global_config.dim,
-        meta_config=global_config.meta_cognitive,
+        meta_cognitive_config=global_config.meta_cognitive,
         memory_config=global_config.memory_temporal,
         global_config=global_config,
         device=device
     )
     
-    return system
+    return module
+
+
+MetaCognitiveSystem = MetaCognitive
+MetaCognitiveSystemConfig = MetaCognitiveConfig
+create_meta_cognitive_system_from_config = create_meta_cognitive_from_config

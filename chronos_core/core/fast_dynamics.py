@@ -378,7 +378,7 @@ class FastDynamicsFunction(DynamicsFunction):
             ) * self.config.fourier_scale
             # 注册为 buffer（不参与训练，但会随模型移动到设备）
             self.register_buffer('fourier_B', fourier_B)
-            logger.info(
+            logger.debug(
                 f"Fourier feature mapping enabled: n_features={self.config.fourier_n_features}, "
                 f"scale={self.config.fourier_scale}"
             )
@@ -696,28 +696,9 @@ class FastDynamicsFunction(DynamicsFunction):
 
     def get_statistics(self) -> Dict:
         """获取统计信息"""
-        stats = {
-            "forward_calls": self.forward_calls,
-            "fast_dim": self.config.fast_dim,
-            "total_input_dim": self.total_input_dim,
-            "decay_rate": self.config.decay_rate,
-            "noise_scale": self.config.noise_scale,
-            "fourier_enabled": self.config.fourier_enabled,
-            "device": self.device
+        return {
+            "forward_calls": self.forward_calls
         }
-
-        # 添加傅里叶特征映射信息
-        if self.config.fourier_enabled:
-            stats["fourier_n_features"] = self.config.fourier_n_features
-            stats["fourier_scale"] = self.config.fourier_scale
-
-        # 网络参数统计
-        total_params = sum(p.numel() for p in self.parameters())
-        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        stats["total_parameters"] = total_params
-        stats["trainable_parameters"] = trainable_params
-
-        return stats
 
     def __repr__(self) -> str:
         return (
@@ -875,7 +856,7 @@ class FastDynamicsSystem(nn.Module):
             # 限制日志输出频率
             self._clip_log_counter += 1
             if self._clip_log_counter >= self._clip_log_interval:
-                logger.info(f"State norm clipped: {norm:.4e} -> {self.config.state_norm_threshold}")
+                logger.debug(f"State norm clipped: {norm:.4e} -> {self.config.state_norm_threshold}")
                 self._clip_log_counter = 0
 
         # 稳定性检查
@@ -972,15 +953,10 @@ class FastDynamicsSystem(nn.Module):
 
     def get_statistics(self) -> Dict:
         """获取统计信息"""
-        stats = {
-            "initialized": self._initialized,
-            "fast_dim": self.config.fast_dim,
-            "slow_dim": self.config.slow_dim,
+        return {
             "history_length": len(self.state_history),
             "dynamics_fn_stats": self.dynamics_fn.get_statistics() if self.dynamics_fn else None
         }
-
-        return stats
 
     def reset(self) -> None:
         """重置系统"""

@@ -1,8 +1,8 @@
 """
-完整反思系统（Reflection System）
-===================================
+反思模块（Reflection Module）
+=============================
 
-整合实时反思机制和睡眠重放系统，实现完整的自我修正和学习进化流程。
+整合实时反思机制和睡眠重放模块，实现完整的自我修正和学习进化流程。
 
 核心功能：
 - 整合实时反思和睡眠重放
@@ -33,25 +33,25 @@
    - 监测反思效果
 
 使用示例：
-    reflection_system = ReflectionSystem(config=ReflectionSystemConfig())
-    reflection_system.initialize(integration_engine)
+    reflection = Reflection(config=ReflectionConfig())
+    reflection.initialize(integration_engine)
     
     # 开始在线运行
-    reflection_system.start_online_running()
+    reflection.start_online_running()
     
     # 添加步骤（实时反思）
-    reflection_system.add_online_step(state, inputs)
+    reflection.add_online_step(state, inputs)
     
     # 检查是否需要睡眠
-    if reflection_system.should_sleep():
+    if reflection.should_sleep():
         # 执行睡眠重放
-        result = reflection_system.perform_sleep()
+        result = reflection.perform_sleep()
     
     # 查询反思历史
-    history = reflection_system.get_reflection_history()
+    history = reflection.get_reflection_history()
     
     # 监测反思效果
-    performance = reflection_system.monitor_performance()
+    performance = reflection.monitor_performance()
 """
 
 import torch
@@ -110,8 +110,8 @@ class ReflectionState(Enum):
 
 
 @dataclass
-class ReflectionSystemConfig:
-    """完整反思系统配置"""
+class ReflectionConfig:
+    """反思模块配置"""
     
     # 实时反思配置
     enable_realtime_reflection: bool = True  # 启用实时反思
@@ -181,55 +181,55 @@ class ReflectionHistoryEntry:
         }
 
 
-class ReflectionSystem:
+class Reflection:
     """
-    完整反思系统
+    反思模块
     
     整合实时反思和睡眠重放，实现完整的自我修正和学习进化流程。
     
     主要功能：
-    1. 整合实时反思机制和睡眠重放系统
+    1. 整合实时反思机制和睡眠重放模块
     2. 实现反思流程管理
     3. 提供统一的反思接口
     4. 状态管理和历史记录
     5. 性能监测和效果评估
     
     使用示例：
-        system = ReflectionSystem(config=ReflectionSystemConfig())
-        system.initialize(integration_engine)
+        reflection = Reflection(config=ReflectionConfig())
+        reflection.initialize(integration_engine)
         
         # 在线运行
-        system.start_online_running()
-        system.add_online_step(state, inputs)
+        reflection.start_online_running()
+        reflection.add_online_step(state, inputs)
         
         # 睡眠重放
-        if system.should_sleep():
-            system.perform_sleep()
+        if reflection.should_sleep():
+            reflection.perform_sleep()
         
         # 手动反思
-        system.manual_reflection()
+        reflection.manual_reflection()
         
         # 查询历史
-        history = system.get_reflection_history()
+        history = reflection.get_reflection_history()
     """
     
     def __init__(
         self,
-        config: Optional[ReflectionSystemConfig] = None,
+        config: Optional["ReflectionConfig"] = None,
         global_config: Optional[ChronosConfig] = None,
         integration_engine: Optional[IntegrationEngine] = None,
         device: Optional[str] = None
     ):
         """
-        初始化反思系统
+        初始化反思模块
         
         Args:
-            config: 反思系统配置
+            config: 反思模块配置
             global_config: 全局配置
             integration_engine: 积分引擎
             device: 计算设备
         """
-        self.config = config or ReflectionSystemConfig()
+        self.config = config or ReflectionConfig()
         self.global_config = global_config or ChronosConfig()
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
         
@@ -277,7 +277,7 @@ class ReflectionSystem:
         # 初始化标志
         self._initialized = False
         
-        logger.info(
+        logger.debug(
             f"ReflectionSystem created: "
             f"realtime={self.config.enable_realtime_reflection}, "
             f"sleep={self.config.enable_sleep_replay}"
@@ -535,7 +535,7 @@ class ReflectionSystem:
         self._mode = ReflectionMode.ONLINE
         self._state = ReflectionState.RUNNING
         
-        logger.info(
+        logger.debug(
             f"Sleep completed: sleep_count={self._sleep_count}, "
             f"elapsed={elapsed_time:.2f}ms"
         )
@@ -822,7 +822,6 @@ class ReflectionSystem:
             统计信息字典
         """
         stats = self._stats.copy()
-        stats["performance_metrics"] = self._performance_metrics
         stats["reflection_history_count"] = len(self._reflection_history)
         stats["current_state"] = self.get_current_state()
         
@@ -870,25 +869,25 @@ class ReflectionSystem:
             "last_sleep_time": 0.0,
         }
         
-        logger.info("ReflectionSystem reset")
+        logger.info("Reflection reset")
     
     def __repr__(self) -> str:
         status = "initialized" if self._initialized else "not_initialized"
         return (
-            f"ReflectionSystem(status={status}, "
+            f"Reflection(status={status}, "
             f"mode={self._mode.value}, "
             f"state={self._state.value}, "
             f"steps={self._online_step_count})"
         )
 
 
-def create_reflection_system_from_config(
+def create_reflection_from_config(
     config: ChronosConfig,
     integration_engine: Optional[IntegrationEngine] = None,
     device: Optional[str] = None
-) -> ReflectionSystem:
+) -> Reflection:
     """
-    从全局配置创建反思系统
+    从全局配置创建反思模块
     
     Args:
         config: 全局配置
@@ -896,9 +895,9 @@ def create_reflection_system_from_config(
         device: 计算设备
         
     Returns:
-        ReflectionSystem 实例
+        Reflection 实例
     """
-    reflection_config = ReflectionSystemConfig(
+    reflection_config = ReflectionConfig(
         enable_realtime_reflection=True,
         enable_sleep_replay=True,
         auto_sleep_trigger=config.memory_temporal.sleep_replay_interval_hours > 0,
@@ -907,12 +906,17 @@ def create_reflection_system_from_config(
         slow_dim=config.dim.slow_variable_dim,
     )
     
-    system = ReflectionSystem(
+    reflection = Reflection(
         config=reflection_config,
         global_config=config,
         integration_engine=integration_engine,
         device=device,
     )
     
-    system.initialize()
-    return system
+    reflection.initialize()
+    return reflection
+
+
+ReflectionSystem = Reflection
+ReflectionSystemConfig = ReflectionConfig
+create_reflection_system_from_config = create_reflection_from_config

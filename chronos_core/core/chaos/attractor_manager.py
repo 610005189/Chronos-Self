@@ -111,7 +111,7 @@ class AttractorManager:
         """
         self.attractors[attractor.name] = attractor
         self.attractor_names.append(attractor.name)
-        logger.info(f"Registered attractor: {attractor.name}")
+        logger.debug(f"Registered attractor: {attractor.name}")
 
     def register_default_attractors(
         self,
@@ -145,7 +145,7 @@ class AttractorManager:
         self.register_attractor(RosslerAttractor(**default_rossler))
         self.register_attractor(ChuaAttractor(**default_chua))
 
-        logger.info("Registered default attractors: Lorenz, Rossler, Chua")
+        logger.debug("Registered default attractors: Lorenz, Rossler, Chua")
 
     def get_current_attractor(self) -> BaseAttractor:
         """
@@ -473,22 +473,13 @@ class AttractorManager:
             return {"status": "not_initialized"}
 
         z = self.current_state.z
-        stats = {
+        return {
             "current_attractor": self.attractor_names[self.current_index],
             "state_norm": torch.norm(z).item(),
-            "state_components": {
-                "x": z[0].item(),
-                "y": z[1].item(),
-                "z": z[2].item()
-            },
             "step_counter": self.step_counter,
-            "is_transitioning": self.is_transitioning,
             "transition_progress": self.transition_progress,
-            "total_switches": len(self.switch_history),
-            "time": self.current_state.t
+            "total_switches": len(self.switch_history)
         }
-
-        return stats
 
     def reset(self, seed: Optional[int] = None) -> None:
         """

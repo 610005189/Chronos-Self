@@ -209,10 +209,7 @@ class PoolingMechanism(nn.Module):
     def get_statistics(self) -> Dict:
         """获取统计信息"""
         return {
-            "pooling_calls": self.pooling_calls,
-            "method": self.method,
-            "fast_dim": self.fast_dim,
-            "slow_dim": self.slow_dim
+            "pooling_calls": self.pooling_calls
         }
 
 
@@ -314,8 +311,7 @@ class SpontaneousEvolution(nn.Module):
     def get_statistics(self) -> Dict:
         """获取统计信息"""
         return {
-            "forward_calls": self.forward_calls,
-            "spontaneous_rate": self.spontaneous_rate
+            "forward_calls": self.forward_calls
         }
 
 
@@ -409,7 +405,7 @@ class SlowDynamicsFunction(DynamicsFunction):
         # 将模块移到设备上
         self.to(self.device)
 
-        logger.info(
+        logger.debug(
             f"SlowDynamicsFunction created: slow_dim={self.config.slow_dim}, "
             f"elastic_coeff={self.elastic_coeff}, device={self.device}"
         )
@@ -548,18 +544,13 @@ class SlowDynamicsFunction(DynamicsFunction):
 
     def get_statistics(self) -> Dict:
         """获取统计信息"""
-        stats = {
+        return {
             "forward_calls": self.forward_calls,
             "update_count": self.update_count,
-            "slow_dim": self.config.slow_dim,
-            "elastic_coeff": self.elastic_coeff,
-            "coupling_coeff": self.coupling_coeff,
             "baseline_norm": torch.norm(self.E_slow_baseline).item(),
             "pooling_stats": self.pooling.get_statistics(),
             "spontaneous_stats": self.spontaneous.get_statistics()
         }
-
-        return stats
 
     def reset_baseline(self) -> None:
         """重置 baseline"""
@@ -810,18 +801,12 @@ class SlowDynamicsSystem(nn.Module):
 
     def get_statistics(self) -> Dict:
         """获取统计信息"""
-        stats = {
-            "initialized": self._initialized,
-            "slow_dim": self.config.slow_dim,
-            "fast_dim": self.config.fast_dim,
-            "update_frequency": self.config.slow_update_frequency,
+        return {
             "fast_step_counter": self.fast_step_counter,
             "slow_update_counter": self.slow_update_counter,
             "history_length": len(self.state_history),
             "dynamics_fn_stats": self.dynamics_fn.get_statistics() if self.dynamics_fn else None
         }
-
-        return stats
 
     def reset(self) -> None:
         """重置系统"""

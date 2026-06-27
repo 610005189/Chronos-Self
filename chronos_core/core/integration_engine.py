@@ -41,6 +41,8 @@ from .coupling import CouplingAndStabilitySystem, CouplingConfig
 from .neural_ode import NeuralODESolver, ODESolverConfig
 from .state_manager import StateManager
 
+from chronos_core.representation.fusion import FusionModule, FusionOutput
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,6 +155,7 @@ class IntegrationEngine(nn.Module):
         self.coupling_system: Optional[CouplingAndStabilitySystem] = None
         self.ode_solver: Optional[NeuralODESolver] = None
         self.dmn: Optional[DefaultModeNetwork] = None
+        self.fusion_module: Optional[FusionModule] = None
 
         # 状态管理器
         self.state_manager = StateManager(
@@ -241,6 +244,17 @@ class IntegrationEngine(nn.Module):
             seed=self.seed
         )
         self.dmn.initialize()
+
+        # 创建 FusionModule（双向交叉注意力融合）
+        self.fusion_module = FusionModule(
+            sem_dim=self.global_config.dim.semantic_dim,
+            log_dim=self.global_config.dim.physical_dim,
+            fusion_dim=self.global_config.dim.fusion_dim,
+            num_heads=8,
+            dropout=0.1
+        )
+        self.fusion_module.to(self.device)
+        self.add_module('fusion_module', self.fusion_module)
 
         self._initialized = True
 
@@ -412,17 +426,22 @@ class IntegrationEngine(nn.Module):
             input_dict['X_sem'] = X_sem
             input_dict['X_log'] = X_log
 
-            # 融合表征（简单拼接 + 维度对齐）
-            # TODO: 在 Phase 4 实现完整的 FusionModule
-            X_fused = torch.cat([X_sem, X_log], dim=0)
-            target_fusion_dim = self.global_config.dim.fusion_dim
-            if X_fused.shape[0] != target_fusion_dim:
-                if X_fused.shape[0] > target_fusion_dim:
-                    X_fused = X_fused[:target_fusion_dim]
-                else:
-                    padding = torch.zeros(target_fusion_dim - X_fused.shape[0], device=self.device)
-                    X_fused = torch.cat([X_fused, padding], dim=0)
-            input_dict['X_fused'] = X_fused
+            # 使用 FusionModule 进行双向交叉注意力融合
+            # 添加 batch 和 seq_len 维度：(dim,) -> (1, 1, dim)
+            X_sem_seq = X_sem.unsqueeze(0).unsqueeze(0)
+            X_log_seq = X_log.unsqueeze(0).unsqueeze(0)
+
+            # 执行融合
+            fusion_output: FusionOutput = self.fusion_module(
+                X_sem_seq, X_log_seq,
+                return_enriched=True,
+                need_attention_weights=False
+            )
+
+            # 提取融合结果并移除 batch 和 seq_len 维度
+            input_dict['X_fused'] = fusion_output.X_fused.squeeze(0).squeeze(0)
+            input_dict['X_sem_enriched'] = fusion_output.X_sem_enriched.squeeze(0).squeeze(0)
+            input_dict['X_log_enriched'] = fusion_output.X_log_enriched.squeeze(0).squeeze(0)
 
         # 元认知调控信号
         if meta_cognitive_signal is not None:
@@ -477,10 +496,8 @@ class IntegrationEngine(nn.Module):
                 E_fast, E_slow, input_dict, dt, t
             )
         elif solver_type == "rk4":
-            # RK4 方法（如果有）
-            # TODO: 实现 RK4 求解器
-            logger.warning("RK4 solver not implemented, falling back to euler")
-            E_fast_new = self.fast_dynamics.step(
+            # 使用 RK4 求解器
+            E_fast_new = self.step_rk4(
                 E_fast, E_slow, input_dict, dt, t
             )
         elif solver_type == "verlet":
@@ -840,6 +857,81 @@ class IntegrationEngine(nn.Module):
             logger.debug(f"Verlet state norm clipped: {norm:.4e} -> {self.fast_dynamics.config.state_norm_threshold}")
 
         # 5. 稳定性检查
+        self.fast_dynamics._check_stability(E_new)
+
+        return E_new
+
+    def step_rk4(
+        self,
+        E_fast: torch.Tensor,
+        E_slow: torch.Tensor,
+        input_dict: Dict[str, torch.Tensor],
+        dt: float,
+        t: float
+    ) -> torch.Tensor:
+        """
+        经典四阶 Runge-Kutta (RK4) 求解器步骤
+
+        RK4 是一种显式数值积分方法，具有四阶精度。算法步骤：
+        k1 = f(t, y)
+        k2 = f(t + dt/2, y + dt/2 * k1)
+        k3 = f(t + dt/2, y + dt/2 * k2)
+        k4 = f(t + dt, y + dt * k3)
+        y_new = y + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+        Args:
+            E_fast: 当前快变量状态
+            E_slow: 慢变量状态
+            input_dict: 输入字典（包含 X_sem, X_log, X_fused, C_meta, B_chaos）
+            dt: 时间步长
+            t: 当前时间
+
+        Returns:
+            新的快变量状态
+        """
+        dynamics_fn = self.fast_dynamics.dynamics_fn
+
+        X_sem = input_dict.get('X_sem')
+        X_log = input_dict.get('X_log')
+        X_fused = input_dict.get('X_fused')
+        C_meta = input_dict.get('C_meta')
+        B_chaos = input_dict.get('B_chaos')
+
+        def compute_F_theta(state, time):
+            return dynamics_fn.forward(
+                torch.tensor(time, device=self.device),
+                state,
+                E_slow=E_slow,
+                X_sem=X_sem,
+                X_log=X_log,
+                X_fused=X_fused,
+                C_meta=C_meta,
+                B_chaos=B_chaos
+            )
+
+        # RK4 算法步骤
+        k1 = compute_F_theta(E_fast, t)
+
+        k2_state = E_fast + 0.5 * dt * k1
+        k2 = compute_F_theta(k2_state, t + 0.5 * dt)
+
+        k3_state = E_fast + 0.5 * dt * k2
+        k3 = compute_F_theta(k3_state, t + 0.5 * dt)
+
+        k4_state = E_fast + dt * k3
+        k4 = compute_F_theta(k4_state, t + dt)
+
+        # 组合更新
+        E_new = E_fast + dt / 6.0 * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+        # 状态范数裁剪（防止发散）
+        norm = torch.norm(E_new).item()
+        if norm > self.fast_dynamics.config.state_norm_threshold:
+            scale = self.fast_dynamics.config.state_norm_threshold / norm
+            E_new = E_new * scale
+            logger.debug(f"RK4 state norm clipped: {norm:.4e} -> {self.fast_dynamics.config.state_norm_threshold}")
+
+        # 稳定性检查
         self.fast_dynamics._check_stability(E_new)
 
         return E_new

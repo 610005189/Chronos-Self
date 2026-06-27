@@ -16,7 +16,7 @@ Main Components:
 - representation: Dual-channel encoders and fusion mechanisms
 - memory: Four-layer memory architecture and working memory
 - training: Training systems and loss functions
-- validation: Validation and emergence detection
+- validation: Validation and pattern detection
 - utils: Configuration and logging utilities
 
 Version: 0.1.0
@@ -42,6 +42,30 @@ from .core import (
     SnapshotType,
 )
 
+# Import meta-cognitive module
+from .core.meta_cognitive import (
+    MetaCognitive,
+    MetaCognitiveConfig,
+    MetaCognitiveSystem,
+    MetaCognitiveSystemConfig,
+)
+
+# Import reflection module
+from .core.reflection import (
+    Reflection,
+    ReflectionConfig,
+    ReflectionSystem,
+    ReflectionSystemConfig,
+)
+
+# Import validation module
+from .validation import (
+    Validation,
+    ValidationConfig,
+    ValidationSystem,
+    ValidationSystemConfig,
+)
+
 # Expose main components
 __all__ = [
     "__version__",
@@ -60,4 +84,19 @@ __all__ = [
     "HistoryEntry",
     "EventType",
     "SnapshotType",
+    # Meta-cognitive module
+    "MetaCognitive",
+    "MetaCognitiveConfig",
+    "MetaCognitiveSystem",
+    "MetaCognitiveSystemConfig",
+    # Reflection module
+    "Reflection",
+    "ReflectionConfig",
+    "ReflectionSystem",
+    "ReflectionSystemConfig",
+    # Validation module
+    "Validation",
+    "ValidationConfig",
+    "ValidationSystem",
+    "ValidationSystemConfig",
 ]

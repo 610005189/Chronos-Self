@@ -48,8 +48,12 @@ from .meta_cognitive_manager import (
 )
 
 from .meta_cognitive_system import (
+    MetaCognitive,
+    MetaCognitiveConfig,
     MetaCognitiveSystem,
     MetaCognitiveSystemConfig,
+    create_meta_cognitive_from_config,
+    create_meta_cognitive_system_from_config,
 )
 
 __all__ = [
@@ -79,7 +83,13 @@ __all__ = [
     "L2PerturbationTrainer",
     "L2AblationTester",
     
-    # 完整系统
+    # 元认知模块（新名称）
+    "MetaCognitive",
+    "MetaCognitiveConfig",
+    "create_meta_cognitive_from_config",
+    
+    # 完整系统（向后兼容）
     "MetaCognitiveSystem",
     "MetaCognitiveSystemConfig",
+    "create_meta_cognitive_system_from_config",
 ]

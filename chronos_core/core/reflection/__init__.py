@@ -62,10 +62,13 @@ from .sleep_updater import (
 )
 
 from .reflection_system import (
-    ReflectionSystem,
-    ReflectionSystemConfig,
+    Reflection,
+    ReflectionConfig,
     ReflectionState,
     ReflectionMode,
+    ReflectionSystem,
+    ReflectionSystemConfig,
+    create_reflection_from_config,
     create_reflection_system_from_config,
 )
 
@@ -93,11 +96,16 @@ __all__ = [
     "StabilityChecker",
     "create_sleep_updater_from_config",
     
-    # 完整反思系统
-    "ReflectionSystem",
-    "ReflectionSystemConfig",
+    # 反思模块（新名称）
+    "Reflection",
+    "ReflectionConfig",
     "ReflectionState",
     "ReflectionMode",
+    "create_reflection_from_config",
+    
+    # 完整反思系统（向后兼容）
+    "ReflectionSystem",
+    "ReflectionSystemConfig",
     "create_reflection_system_from_config",
 ]
 

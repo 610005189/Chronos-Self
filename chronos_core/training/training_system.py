@@ -364,7 +364,7 @@ class TrainingSystem(nn.Module):
 
             frozen_count = trainable_before - trainable_after
 
-            logger.info(
+            logger.debug(
                 f"Freezing strategy applied: "
                 f"trainable_before={trainable_before}, "
                 f"trainable_after={trainable_after}, "
@@ -438,7 +438,7 @@ class TrainingSystem(nn.Module):
         else:
             self.scheduler = None
 
-        logger.info(
+        logger.debug(
             f"Scheduler created: type={self.config.scheduler_type}"
         )
 
@@ -510,7 +510,7 @@ class TrainingSystem(nn.Module):
             if callback:
                 callback(epoch, epoch_loss, self)
 
-            logger.info(
+            logger.debug(
                 f"Epoch {epoch} completed: "
                 f"loss={epoch_loss:.4f}, "
                 f"lr={self.optimizer.param_groups[0]['lr']:.6f}"
@@ -890,23 +890,14 @@ class TrainingSystem(nn.Module):
         Returns:
             统计信息字典
         """
-        stats = {
-            "initialized": self._initialized,
-            "is_training": self._is_training,
+        return {
             "current_epoch": self._current_epoch,
             "current_step": self._current_step,
             "best_loss": self.history.best_loss,
             "best_epoch": self.history.best_epoch,
             "total_epochs": self.history.total_epochs,
-            "total_steps": self.history.total_steps,
-            "training_mode": self.config.training_mode,
-            "device": self.device,
-            "loss_functions_stats": self.loss_functions.get_statistics() if self.loss_functions else None,
-            "dynamics_alignment_stats": self.dynamics_alignment.get_statistics() if self.dynamics_alignment else None,
-            "freezing_strategy_stats": self.freezing_strategy.get_statistics() if self.freezing_strategy else None,
+            "total_steps": self.history.total_steps
         }
-
-        return stats
 
     def reset(self) -> None:
         """重置训练系统"""

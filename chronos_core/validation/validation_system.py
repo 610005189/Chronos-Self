@@ -1,13 +1,13 @@
 """
-完整验证系统
-==============
+验证模块（Validation Module）
+=============================
 
 整合所有验证组件，实现完整的验证流程和报告生成。
 
 验证层级：
 - P0级验证（最高优先级）：核心动力学验证
 - P1级验证：功能模块验证（DMN、工作记忆、L2独立性）
-- P2级验证：涌现判定（动力学指标+行为学指标）
+- P2级验证：模式检测（动力学指标+行为学指标）
 
 验证模式：
 - 快速验证：分钟级，关键指标测试
@@ -15,9 +15,9 @@
 - 持续监测：长期运行，实时监测
 
 验证流程：
-1. P0级验证 → 系统基本稳定性
+1. P0级验证 → 模块基本稳定性
 2. P1级验证 → 功能模块正确性
-3. P2级验证 → 涌现判定
+3. P2级验证 → 模式检测
 4. 生成验证报告
 """
 
@@ -49,7 +49,7 @@ class ValidationMode(Enum):
     FULL = "full"             # 完整验证（小时级）
     CONTINUOUS = "continuous" # 持续监测（长期）
     P0_ONLY = "p0_only"       # 仅P0级验证
-    EMERGENCE = "emergence"   # 仅涌现判定
+    PATTERN_DETECTION = "pattern_detection"   # 仅模式检测
 
 
 class ValidationLevel(Enum):
@@ -60,8 +60,8 @@ class ValidationLevel(Enum):
 
 
 @dataclass
-class ValidationSystemConfig:
-    """验证系统配置"""
+class ValidationConfig:
+    """验证模块配置"""
 
     # 验证模式
     default_mode: ValidationMode = ValidationMode.FULL
@@ -148,34 +148,34 @@ class ValidationResult:
         }
 
 
-class ValidationSystem:
+class Validation:
     """
-    完整验证系统
+    验证模块
 
     整合所有验证组件，实现完整的验证流程和报告生成。
 
     使用示例：
-        system = ValidationSystem(config)
-        result = system.run_full_validation(engine)
-        system.save_final_report(result)
+        validation = Validation(config)
+        result = validation.run_full_validation(engine)
+        validation.save_final_report(result)
     """
 
     def __init__(
         self,
         config: Optional[ChronosConfig] = None,
-        system_config: Optional[ValidationSystemConfig] = None,
+        validation_config: Optional["ValidationConfig"] = None,
         device: Optional[str] = None
     ):
         """
-        初始化验证系统
+        初始化验证模块
 
         Args:
             config: 全局配置
-            system_config: 验证系统配置
+            validation_config: 验证模块配置
             device: 计算设备
         """
         self.global_config = config or ChronosConfig()
-        self.config = system_config or ValidationSystemConfig()
+        self.config = validation_config or ValidationConfig()
 
         self.device = device or self.global_config.device
 
@@ -190,7 +190,7 @@ class ValidationSystem:
         self._start_time: Optional[float] = None
 
         logger.info(
-            f"ValidationSystem initialized: "
+            f"Validation initialized: "
             f"default_mode={self.config.default_mode.value}, "
             f"device={self.device}"
         )
@@ -236,8 +236,8 @@ class ValidationSystem:
             result = self._run_continuous_validation(engine, initial_state, verbose)
         elif mode == ValidationMode.P0_ONLY:
             result = self._run_p0_only_validation(engine, initial_state, verbose)
-        elif mode == ValidationMode.EMERGENCE:
-            result = self._run_emergence_validation(engine, initial_state, verbose)
+        elif mode == ValidationMode.PATTERN_DETECTION:
+            result = self._run_pattern_detection_validation(engine, initial_state, verbose)
 
         # 记录验证时间
         result.validation_time = time.time() - self._start_time
@@ -523,7 +523,7 @@ class ValidationSystem:
                 self._dynamics_monitor.save_report(str(report_path))
 
                 if verbose:
-                    logger.info(
+                    logger.debug(
                         f"[Step {step_idx}] "
                         f"ρ(τ)={indicators.autocorrelation_rho:.4f}, "
                         f"λ_max={indicators.lyapunov_lambda_mean:.6f}, "
@@ -590,14 +590,14 @@ class ValidationSystem:
 
         return result
 
-    def _run_emergence_validation(
+    def _run_pattern_detection_validation(
         self,
         engine: IntegrationEngine,
         initial_state: Optional[SelfState],
         verbose: bool
     ) -> ValidationResult:
         """
-        仅涌现判定
+        仅模式检测
 
         Args:
             engine: IntegrationEngine实例
@@ -608,9 +608,9 @@ class ValidationSystem:
             ValidationResult
         """
         if verbose:
-            logger.info("\n[EMERGENCE验证模式] 仅涌现判定...")
+            logger.info("\n[PATTERN_DETECTION验证模式] 仅模式检测...")
 
-        result = ValidationResult(validation_mode=ValidationMode.EMERGENCE)
+        result = ValidationResult(validation_mode=ValidationMode.PATTERN_DETECTION)
 
         # 动力学监测
         self._dynamics_monitor = DynamicsMonitoring(
@@ -659,6 +659,8 @@ class ValidationSystem:
 
         return result
 
+    _run_emergence_validation = _run_pattern_detection_validation
+
     def _run_p1_validation(
         self,
         engine: IntegrationEngine,
@@ -683,25 +685,482 @@ class ValidationSystem:
             logger.info("  P1级验证（功能模块验证）...")
 
         p1_result = {
-            "passed": True,
-            "dmn": {
-                "passed": True,
-                "description": "DMN混沌注入功能正常"
-            },
-            "working_memory": {
-                "passed": True,
-                "description": "工作记忆容量和功能正常"
-            },
-            "l2_independence": {
-                "passed": True,
-                "description": "L2元认知调控独立性正常"
-            }
+            "passed": False,
+            "total_metrics": 0,
+            "passed_metrics": 0,
+            "dmn": {},
+            "working_memory": {},
+            "l2_independence": {}
         }
 
-        # 简化版本：默认通过
-        # 实际应用中应该有详细的P1级验证逻辑
+        all_passed = []
+
+        # ===== DMN功能验证 =====
+        if verbose:
+            logger.info("    - DMN功能验证...")
+
+        dmn_results = self._validate_dmn(engine, verbose)
+        p1_result["dmn"] = dmn_results
+        all_passed.append(dmn_results["passed"])
+
+        # ===== 工作记忆验证 =====
+        if verbose:
+            logger.info("    - 工作记忆验证...")
+
+        wm_results = self._validate_working_memory(engine, verbose)
+        p1_result["working_memory"] = wm_results
+        all_passed.append(wm_results["passed"])
+
+        # ===== L2独立性验证 =====
+        if verbose:
+            logger.info("    - L2独立性验证...")
+
+        l2_results = self._validate_l2_independence(engine, verbose)
+        p1_result["l2_independence"] = l2_results
+        all_passed.append(l2_results["passed"])
+
+        # 统计指标
+        p1_result["total_metrics"] = sum([
+            len(dmn_results.get("metrics", [])),
+            len(wm_results.get("metrics", [])),
+            len(l2_results.get("metrics", []))
+        ])
+        p1_result["passed_metrics"] = sum([
+            sum(1 for m in dmn_results.get("metrics", []) if m["passed"]),
+            sum(1 for m in wm_results.get("metrics", []) if m["passed"]),
+            sum(1 for m in l2_results.get("metrics", []) if m["passed"])
+        ])
+
+        # 综合判定
+        p1_result["passed"] = all(all_passed)
+
+        if verbose:
+            logger.info(
+                f"  P1级验证完成: "
+                f"passed={p1_result['passed']}, "
+                f"metrics={p1_result['passed_metrics']}/{p1_result['total_metrics']}"
+            )
 
         return p1_result
+
+    def _validate_dmn(self, engine: IntegrationEngine, verbose: bool) -> Dict[str, Any]:
+        """
+        DMN功能验证
+
+        Args:
+            engine: IntegrationEngine实例
+            verbose: 详细日志
+
+        Returns:
+            DMN验证结果字典
+        """
+        metrics = []
+        dmn = engine.dmn
+
+        if dmn is None:
+            return {
+                "passed": False,
+                "description": "DMN系统未初始化",
+                "metrics": []
+            }
+
+        # 指标1: 混沌注入信号有效性验证
+        initial_E_fast = torch.randn(engine.engine_config.fast_dim) * 0.1
+        B_chaos = dmn.step(dt=0.01, E_fast=initial_E_fast)
+
+        signal_norm = torch.norm(B_chaos).item()
+        signal_valid = 0.001 < signal_norm < 100.0
+        metrics.append({
+            "name": "混沌注入信号有效性",
+            "value": signal_norm,
+            "threshold": "0.001 < norm < 100.0",
+            "passed": signal_valid,
+            "description": f"混沌注入信号范数={signal_norm:.4f}"
+        })
+
+        # 指标2: 吸引子切换机制验证
+        if hasattr(dmn, 'attractor_manager') and dmn.attractor_manager:
+            initial_switches = len(dmn.attractor_manager.switch_history)
+            # 强制切换吸引子
+            dmn.force_attractor_switch()
+            after_switches = len(dmn.attractor_manager.switch_history)
+            switch_occurred = after_switches > initial_switches
+            metrics.append({
+                "name": "吸引子切换机制",
+                "value": f"{initial_switches} -> {after_switches}",
+                "threshold": "switch_count > 0",
+                "passed": switch_occurred,
+                "description": f"吸引子切换次数增加: {after_switches - initial_switches}"
+            })
+        else:
+            metrics.append({
+                "name": "吸引子切换机制",
+                "value": "N/A",
+                "threshold": "attractor_manager exists",
+                "passed": False,
+                "description": "attractor_manager未初始化"
+            })
+
+        # 指标3: 混沌信号与快变量耦合验证
+        # 运行DMN一段时间，检查核心子空间方差变化
+        dmn.reset(seed=42)
+        dmn.initialize()
+        prev_variance = torch.var(dmn.state.E_fast_core).item() if dmn.state.E_fast_core is not None else 0.0
+
+        for _ in range(100):
+            dmn.step(dt=0.01)
+
+        current_variance = torch.var(dmn.state.E_fast_core).item() if dmn.state.E_fast_core is not None else 0.0
+        variance_increased = current_variance > prev_variance * 0.5
+        metrics.append({
+            "name": "混沌信号与快变量耦合",
+            "value": f"{prev_variance:.6f} -> {current_variance:.6f}",
+            "threshold": "variance > initial * 0.5",
+            "passed": variance_increased,
+            "description": f"核心子空间方差变化: {current_variance / (prev_variance + 1e-10):.2f}x"
+        })
+
+        # 指标4: DMN稳定性验证
+        stability_maintained = dmn.state.is_stable if dmn.state else False
+        metrics.append({
+            "name": "DMN系统稳定性",
+            "value": stability_maintained,
+            "threshold": "is_stable == True",
+            "passed": stability_maintained,
+            "description": f"DMN系统状态稳定: {stability_maintained}"
+        })
+
+        # 指标5: 自适应增益控制验证
+        if hasattr(dmn, 'chaos_injector') and dmn.chaos_injector:
+            gain_initial = dmn.chaos_injector.current_gain
+            # 扰动核心子空间
+            dmn.state.E_fast_core = torch.randn_like(dmn.state.E_fast_core) * 2.0
+            # 运行几步让增益自适应
+            for _ in range(50):
+                dmn.step(dt=0.01)
+            gain_final = dmn.chaos_injector.current_gain
+            gain_adapted = abs(gain_final - gain_initial) > 1e-6 or abs(gain_final - gain_initial) / (abs(gain_initial) + 1e-10) > 0.01
+            metrics.append({
+                "name": "自适应增益控制",
+                "value": f"{gain_initial:.4f} -> {gain_final:.4f}",
+                "threshold": "gain change > 1e-6 or relative change > 1%",
+                "passed": gain_adapted,
+                "description": f"增益自适应变化: {gain_final - gain_initial:.6f}"
+            })
+        else:
+            metrics.append({
+                "name": "自适应增益控制",
+                "value": "N/A",
+                "threshold": "chaos_injector exists",
+                "passed": False,
+                "description": "chaos_injector未初始化"
+            })
+
+        passed = all(m["passed"] for m in metrics)
+
+        if verbose:
+            for m in metrics:
+                status = "✓" if m["passed"] else "✗"
+                logger.debug(f"      {status} {m['name']}: {m['description']}")
+
+        return {
+            "passed": passed,
+            "description": "DMN功能验证" if passed else "DMN功能验证失败",
+            "metrics": metrics
+        }
+
+    def _validate_working_memory(self, engine: IntegrationEngine, verbose: bool) -> Dict[str, Any]:
+        """
+        工作记忆验证
+
+        Args:
+            engine: IntegrationEngine实例
+            verbose: 详细日志
+
+        Returns:
+            工作记忆验证结果字典
+        """
+        metrics = []
+
+        # 创建工作记忆实例进行验证
+        from chronos_core.memory.work_memory import WorkingMemory, ChunkType
+
+        wm = WorkingMemory(
+            capacity=7,
+            fast_dim=engine.engine_config.fast_dim,
+            chunk_dim=256,
+            decay_time_constant=10.0,
+            min_activation=0.01,
+            device=self.device
+        )
+
+        # 指标1: 工作记忆容量约束验证
+        # 创建超过容量的组块，验证容量约束生效
+        test_state = torch.randn(engine.engine_config.fast_dim)
+
+        for i in range(10):
+            wm.create_chunk(
+                source_state=test_state,
+                chunk_type=ChunkType.TEMPORARY,
+                initial_activation=1.0 - i * 0.08
+            )
+
+        active_chunks = wm.get_active_chunks()
+        capacity_respected = len(active_chunks) <= wm.capacity
+        metrics.append({
+            "name": "工作记忆容量约束",
+            "value": f"{len(active_chunks)}/{wm.capacity}",
+            "threshold": f"active <= {wm.capacity}",
+            "passed": capacity_respected,
+            "description": f"激活组块数={len(active_chunks)}, 容量上限={wm.capacity}"
+        })
+
+        # 指标2: 组块创建和检索验证
+        test_chunk = wm.create_chunk(
+            source_state=test_state,
+            chunk_type=ChunkType.SEMANTIC,
+            initial_activation=1.0
+        )
+        retrieved_chunk = wm.get_chunk(test_chunk.chunk_id)
+        chunk_retrievable = retrieved_chunk is not None
+        metrics.append({
+            "name": "组块创建和检索",
+            "value": chunk_retrievable,
+            "threshold": "retrieved_chunk is not None",
+            "passed": chunk_retrievable,
+            "description": f"组块{test_chunk.chunk_id}创建并成功检索"
+        })
+
+        # 指标3: 激活强度衰减机制验证
+        if retrieved_chunk:
+            initial_activation = wm.activation_strength.get_activation(retrieved_chunk.chunk_id)
+            # 模拟时间流逝
+            wm.update_activations(delta_time=30.0)
+            final_activation = wm.activation_strength.get_activation(retrieved_chunk.chunk_id)
+            activation_decayed = final_activation < initial_activation * 0.9
+            metrics.append({
+                "name": "激活强度衰减机制",
+                "value": f"{initial_activation:.4f} -> {final_activation:.4f}",
+                "threshold": "final < initial * 0.9",
+                "passed": activation_decayed,
+                "description": f"30秒后激活强度衰减: {100 * (1 - final_activation / initial_activation):.1f}%"
+            })
+        else:
+            metrics.append({
+                "name": "激活强度衰减机制",
+                "value": "N/A",
+                "threshold": "chunk exists",
+                "passed": False,
+                "description": "无法测试衰减，组块检索失败"
+            })
+
+        # 指标4: 组块恢复机制验证
+        # 创建一个组块，让其衰减到休眠状态，然后恢复
+        recovery_chunk = wm.create_chunk(
+            source_state=test_state * 2,
+            chunk_type=ChunkType.EMOTIONAL,
+            initial_activation=0.3
+        )
+        chunk_id = recovery_chunk.chunk_id
+
+        # 让其衰减
+        wm.update_activations(delta_time=60.0)
+
+        # 尝试恢复
+        restored_chunk = wm.restore_chunk(chunk_id, initial_activation=0.5)
+        restoration_successful = restored_chunk is not None
+        metrics.append({
+            "name": "组块恢复机制",
+            "value": restoration_successful,
+            "threshold": "restored_chunk is not None",
+            "passed": restoration_successful,
+            "description": f"组块{chunk_id}恢复成功: {restoration_successful}"
+        })
+
+        # 指标5: 容量约束强制执行验证
+        # 创建大量组块，验证低激活组块被标记为休眠
+        for i in range(15):
+            wm.create_chunk(
+                source_state=test_state * (i + 1),
+                chunk_type=ChunkType.TEMPORARY,
+                initial_activation=0.1
+            )
+
+        dormant_chunks = wm.get_dormant_chunks()
+        dormant_exists = len(dormant_chunks) > 0
+        metrics.append({
+            "name": "容量约束强制执行",
+            "value": f"{len(dormant_chunks)} dormant",
+            "threshold": "dormant_count > 0",
+            "passed": dormant_exists,
+            "description": f"超出容量后休眠组块数={len(dormant_chunks)}"
+        })
+
+        passed = all(m["passed"] for m in metrics)
+
+        if verbose:
+            for m in metrics:
+                status = "✓" if m["passed"] else "✗"
+                logger.debug(f"      {status} {m['name']}: {m['description']}")
+
+        return {
+            "passed": passed,
+            "description": "工作记忆验证通过" if passed else "工作记忆验证失败",
+            "metrics": metrics
+        }
+
+    def _validate_l2_independence(self, engine: IntegrationEngine, verbose: bool) -> Dict[str, Any]:
+        """
+        L2独立性验证
+
+        Args:
+            engine: IntegrationEngine实例
+            verbose: 详细日志
+
+        Returns:
+            L2独立性验证结果字典
+        """
+        metrics = []
+
+        # 创建元认知系统进行验证
+        from chronos_core.core.meta_cognitive.meta_cognitive_system import (
+            MetaCognitiveSystem,
+            MetaCognitiveSystemConfig
+        )
+
+        meta_system = MetaCognitiveSystem(
+            config=MetaCognitiveSystemConfig(device=self.device),
+            dim_config=engine.global_config.dim,
+            meta_config=engine.global_config.meta_cognitive,
+            memory_config=engine.global_config.memory_temporal,
+            global_config=engine.global_config,
+            device=self.device
+        )
+
+        # 指标1: L2物理隔离验证
+        if hasattr(meta_system, 'l2_layer') and meta_system.l2_layer:
+            is_isolated, isolation_errors = meta_system.l2_layer.check_physical_isolation()
+            metrics.append({
+                "name": "L2物理隔离",
+                "value": is_isolated,
+                "threshold": "is_isolated == True",
+                "passed": is_isolated,
+                "description": f"L2层物理隔离验证: {is_isolated}, 错误: {isolation_errors}"
+            })
+        else:
+            metrics.append({
+                "name": "L2物理隔离",
+                "value": "N/A",
+                "threshold": "l2_layer exists",
+                "passed": False,
+                "description": "L2层未初始化"
+            })
+
+        # 指标2: 消融测试功能验证
+        initial_ablation_state = meta_system.is_ablation_active()
+        meta_system.start_ablation_test()
+        ablation_active = meta_system.is_ablation_active()
+        meta_system.end_ablation_test()
+        ablation_inactive = not meta_system.is_ablation_active()
+
+        ablation_works = ablation_active and ablation_inactive and not initial_ablation_state
+        metrics.append({
+            "name": "消融测试功能",
+            "value": f"{initial_ablation_state} -> {ablation_active} -> {ablation_inactive}",
+            "threshold": "start/end work correctly",
+            "passed": ablation_works,
+            "description": f"消融测试状态转换正确: {initial_ablation_state} -> {ablation_active} -> {ablation_inactive}"
+        })
+
+        # 指标3: 调控信号生成验证
+        semantic_input = torch.randn(engine.global_config.dim.semantic_dim, device=self.device)
+        physical_input = torch.randn(engine.global_config.dim.physical_dim, device=self.device)
+
+        # 运行几步让系统稳定
+        for _ in range(20):
+            outputs = meta_system.forward(
+                semantic_input=semantic_input,
+                physical_input=physical_input,
+                apply_regulation=True
+            )
+
+        # 检查是否生成了调控信号
+        l2_control = outputs.get("l2_control")
+        control_signal_exists = l2_control is not None and l2_control.shape[0] > 0
+        metrics.append({
+            "name": "调控信号生成",
+            "value": f"dim={l2_control.shape[0] if control_signal_exists else 0}",
+            "threshold": "control_signal is not None",
+            "passed": control_signal_exists,
+            "description": f"L2调控信号生成: {control_signal_exists}, 维度={l2_control.shape[0] if control_signal_exists else 0}"
+        })
+
+        # 指标4: L2调控对快变量影响验证
+        # 比较有/无L2调控时的状态变化
+        meta_system.reset()
+
+        # 测试带L2调控
+        test_with_l2 = meta_system.test_with_l2(
+            semantic_input=semantic_input,
+            physical_input=physical_input,
+            num_steps=50
+        )
+        performance_with_l2 = test_with_l2["mean_performance"]
+
+        # 测试不带L2调控（消融）
+        meta_system.reset()
+        test_without_l2 = meta_system.test_without_l2(
+            semantic_input=semantic_input,
+            physical_input=physical_input,
+            num_steps=50
+        )
+        performance_without_l2 = test_without_l2["mean_performance"]
+
+        # L2应该能产生可观测的影响
+        regulation_effective = abs(performance_with_l2 - performance_without_l2) > 0.001
+        metrics.append({
+            "name": "L2调控对快变量影响",
+            "value": f"with={performance_with_l2:.4f}, without={performance_without_l2:.4f}",
+            "threshold": "|with - without| > 0.001",
+            "passed": regulation_effective,
+            "description": f"L2调控效果差异: {abs(performance_with_l2 - performance_without_l2):.6f}"
+        })
+
+        # 指标5: L1-L2信息流验证
+        # 验证L1状态能正确传递到L2
+        meta_system.reset()
+
+        for _ in range(10):
+            outputs = meta_system.forward(
+                semantic_input=semantic_input,
+                physical_input=physical_input,
+                apply_regulation=True
+            )
+
+        # 检查L1状态缓存和L2控制信号
+        l1_state_cached = meta_system._l1_state_cache is not None
+        l2_control_cached = meta_system._l2_control_cache is not None
+        info_flow_ok = l1_state_cached and l2_control_cached
+        metrics.append({
+            "name": "L1-L2信息流",
+            "value": f"L1 cached={l1_state_cached}, L2 cached={l2_control_cached}",
+            "threshold": "both caches exist",
+            "passed": info_flow_ok,
+            "description": f"L1→L2信息流正常: L1缓存={l1_state_cached}, L2缓存={l2_control_cached}"
+        })
+
+        passed = all(m["passed"] for m in metrics)
+
+        if verbose:
+            for m in metrics:
+                status = "✓" if m["passed"] else "✗"
+                logger.debug(f"      {status} {m['name']}: {m['description']}")
+
+        return {
+            "passed": passed,
+            "description": "L2独立性验证通过" if passed else "L2独立性验证失败",
+            "metrics": metrics
+        }
 
     def save_final_report(
         self,
@@ -1035,25 +1494,23 @@ class ValidationSystem:
 
     def get_statistics(self) -> Dict[str, Any]:
         """获取验证系统统计信息"""
-        stats = {
-            "is_validating": self._is_validating,
-            "current_level": self._current_level.value if self._current_level else None,
-            "components": {
-                "p0_validator": self._p0_validator.get_statistics() if self._p0_validator else None,
-                "dynamics_monitor": self._dynamics_monitor.get_statistics() if self._dynamics_monitor else None,
-                "behavioral_metrics": self._behavioral_metrics.get_statistics() if self._behavioral_metrics else None
-            }
+        return {
+            "current_level": self._current_level.value if self._current_level else None
         }
 
-        return stats
+
+ValidationSystem = Validation
+ValidationSystemConfig = ValidationConfig
 
 
 # 导出所有验证组件
 __all__ = [
     'ValidationMode',
     'ValidationLevel',
-    'ValidationSystemConfig',
+    'ValidationConfig',
     'ValidationResult',
+    'Validation',
+    'ValidationSystemConfig',
     'ValidationSystem',
     'P0Validation',
     'P0ValidationResult',
