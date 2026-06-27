@@ -8,9 +8,16 @@ from setuptools import setup, find_packages
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
+# Read version from _version.py to keep in sync
+import re
+with open("chronos_core/_version.py", "r") as f:
+    content = f.read()
+    match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
+    VERSION = match.group(1) if match else "0.1.1"
+
 setup(
     name="chronos-self",
-    version="0.1.0",
+    version=VERSION,
     author="Chronos-Self Team",
     author_email="team@chronos-self.ai",
     description="A continuous time dynamics system with stable state representation",

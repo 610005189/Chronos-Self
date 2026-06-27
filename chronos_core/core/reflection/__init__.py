@@ -90,4 +90,5 @@ __all__ = [
     "create_reflection_system_from_config",
 ]
 
-__version__ = "0.1.0"
+# Import version from single source
+from ..._version import __version__

@@ -95,6 +95,5 @@ __all__ = [
     'BehavioralMetricsConfig'
 ]
 
-
-# Module version
-__version__ = '1.0.0'
+# Import version from single source
+from .._version import __version__

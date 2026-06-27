@@ -19,12 +19,19 @@ Main Components:
 - validation: Validation and pattern detection
 - utils: Configuration and logging utilities
 
-Version: 0.1.0
 License: MIT
 """
 
-__version__ = "0.1.0"
-__author__ = "Chronos-Self Team"
+# Version management - single source of truth
+from ._version import __version__, __version_info__, __author__, __license__
+
+# Re-export for convenience
+__all__ = [
+    "__version__",
+    "__version_info__",
+    "__author__",
+    "__license__",
+]
 
 # Import key utilities
 from .utils.config import ChronosConfig, get_config, init_config
@@ -68,14 +75,19 @@ from .validation import (
 
 # Expose main components
 __all__ = [
+    # Version info
     "__version__",
+    "__version_info__",
     "__author__",
+    "__license__",
+    # Config and logging
     "ChronosConfig",
     "get_config",
     "init_config",
     "ChronosLogger",
     "get_logger",
     "init_logger",
+    # Core state management
     "SelfState",
     "StateManager",
     "ExternalInput",

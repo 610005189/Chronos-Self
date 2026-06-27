@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chronos-self"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A continuous time dynamics system with stable state representation"
 readme = "README.md"
 license = {text = "MIT"}
@@ -78,6 +78,9 @@ chronos-validate = "chronos_core.validation.cli:main"
 
 [tool.setuptools]
 packages = ["chronos_core"]
+
+[tool.setuptools.dynamic]
+version = { attr = "chronos_core._version.__version__" }
 
 [tool.setuptools.package-data]
 chronos_core = ["py.typed", "*.pyi"]

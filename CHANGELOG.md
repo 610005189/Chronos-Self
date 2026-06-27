@@ -9,17 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- 标准开源项目文件
-  - LICENSE（MIT License）
-  - CONTRIBUTING.md（贡献指南）
-  - docs/README.md（文档索引）
+- 项目版本统一管理
+  - 创建 `_version.py` 作为单一版本源
+  - 所有模块从单一源导入版本信息
+
+### Changed
+
+- README 文档术语工程化
+  - "元认知" → "状态监控"
+  - "涌现" → "稳态"
+  - "内源性" → "自持"
+  - "睡眠重放" → "离线回放"
+  - "好奇心" → "探索驱动"
+
+### Fixed
+
+- (None)
+
+### Removed
+
+- (None)
+
+## [0.1.1] - 2026-06-27
+
+### Added
 
 - 竞争性稳态机制（Competitive Emergence）
   - 退火竞争收敛算法
   - 六指标综合判定体系（3动力学 + 3行为学）
   - 稳态阈值动态调整
 
-- 探索驱动引擎（Curiosity Engine）
+- 探索驱动引擎（Exploration Engine）
   - L2 驱动的预测误差最小化
   - 伪意图生成机制
   - 探索驱动-预测误差循环
@@ -46,6 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 注册所有子模块（integration_engine, semantic_encoder, logical_encoder, fusion_module, meta_cognitive, training_system）
   - 支持 .to(device)、.parameters()、.state_dict() 等标准 PyTorch 方法
 
+- 核心模块注释术语统一
+  - meta_cognitive 模块：元认知 → 递归状态监控
+  - competitive_emergence 模块：涌现 → 稳态
+  - curiosity_engine 模块：好奇心 → 探索驱动
+  - reflection 模块：睡眠重放 → 离线回放
+  - dmn_system 模块：内源性 → 自持
+
 ### Fixed
 
 - 修复 test_config.py 默认值测试（匹配新的配置参数）
@@ -57,6 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复 SSM forward NaN/Inf 检查缺失
 - 修复 neural_ode adaptive_integrate 无限循环风险（添加 max_retries）
 - 修复 ChronosSystem 子模块未注册问题（meta_cognitive, reflection, validation）
+- 修复 ExternalInput X_proprio 冗余类型检查（删除 else 分支中的死代码）
+- 修复 MetaCognitiveSystem config 属性访问错误（self.config → self.meta_config）
 
 ### Removed
 
@@ -70,8 +99,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 表征系统（双通道编码）
   - 积分引擎（多时间尺度连续积分）
   - 默认模式网络（DMN）
-  - 元认知调控系统
-  - 反思与睡眠重放系统
+  - 递归状态监控系统
+  - 反思与离线回放系统
   - 记忆系统
   - 验证系统
 
@@ -106,7 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 反思机制与离线回放
   - 实时反思（Realtime Reflection）
   - 离线回放（Offline Replay）
-  - 睡眠更新器（Sleep Updater）
+  - 离线期更新器（Offline Updater）
   - 反思系统集成
 
 - 验证系统（P0/P1/P2三级验证）
@@ -140,5 +169,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 无（初始版本）
 
-[unreleased]: https://github.com/610005189/Chronos-Self/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/610005189/Chronos-Self/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/610005189/Chronos-Self/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/610005189/Chronos-Self/releases/tag/v0.1.0

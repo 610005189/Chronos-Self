@@ -125,6 +125,9 @@ from .reflection import (
     create_reflection_system_from_config,
 )
 
+# Import version from single source
+from .._version import __version__
+
 __all__ = [
     # 核心状态管理
     "SelfState",
@@ -203,5 +206,3 @@ __all__ = [
     "ReflectionMode",
     "create_reflection_system_from_config",
 ]
-
-__version__ = "0.1.0"
