@@ -1,18 +1,18 @@
 """
-元认知调控系统 - Meta-Cognitive Control System
-===============================================
+递归状态监控系统 - Recursive State Monitoring System
+=====================================================
 
-层级化自指与元认知调控系统，实现自指递归截断机制。
+三层递归状态监控架构，实现状态监控截断机制。
 
 层级结构：
-- L0: 感知层（Perception Layer）- 无自指能力，仅处理感知
-- L1: 自我状态层（Self-State Layer）- 完整认知积分，包含自我状态
-- L2: 元认知层（Meta-Cognitive Layer）- 高阶调控，物理隔离于L0
+- L0: 感知层（Perception Layer）- 仅处理感知输入
+- L1: 状态层（State Layer）- 完整状态积分，包含系统状态
+- L2: 监控层（Monitoring Layer）- 高阶调控，物理隔离于L0
 
 核心模块：
 - perception_layer: L0感知层实现
-- self_state_layer: L1自我状态层实现
-- meta_cognitive_layer: L2元认知层实现
+- self_state_layer: L1状态层实现
+- meta_cognitive_layer: L2监控层实现
 - meta_cognitive_manager: L2扰动训练与独立性验证
 - meta_cognitive_system: 完整系统整合
 """
@@ -56,6 +56,26 @@ from .meta_cognitive_system import (
     create_meta_cognitive_system_from_config,
 )
 
+from .curiosity_engine import (
+    CuriosityEngine,
+    CuriosityConfig,
+    CuriosityMetrics,
+    NoveltyDetector,
+    ComplexityScorer,
+    UncertaintyEstimator,
+    InputPriorityQueue,
+    PrioritizedInput,
+    create_curiosity_engine_from_config,
+)
+
+from .competitive_emergence import (
+    CompetitiveEmergence,
+    EmergenceConfig,
+    EmergenceState,
+    EmergenceIndicators,
+    EmergenceStatistics,
+)
+
 __all__ = [
     # L0 感知层
     "PerceptionLayer",
@@ -92,4 +112,22 @@ __all__ = [
     "MetaCognitiveSystem",
     "MetaCognitiveSystemConfig",
     "create_meta_cognitive_system_from_config",
+    
+    # 好奇心引擎
+    "CuriosityEngine",
+    "CuriosityConfig",
+    "CuriosityMetrics",
+    "NoveltyDetector",
+    "ComplexityScorer",
+    "UncertaintyEstimator",
+    "InputPriorityQueue",
+    "PrioritizedInput",
+    "create_curiosity_engine_from_config",
+    
+    # 竞争性涌现
+    "CompetitiveEmergence",
+    "EmergenceConfig",
+    "EmergenceState",
+    "EmergenceIndicators",
+    "EmergenceStatistics",
 ]

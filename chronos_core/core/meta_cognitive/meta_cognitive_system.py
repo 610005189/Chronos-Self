@@ -1,8 +1,8 @@
 """
-元认知模块 - Meta-Cognitive Module
-==================================
+递归状态监控模块 - Recursive State Monitoring Module
+====================================================
 
-实现完整的 L0-L1-L2 三层元认知调控模块。
+实现完整的 L0-L1-L2 三层递归状态监控模块。
 
 核心功能：
 - 整合 L0、L1、L2 三层结构
@@ -12,20 +12,20 @@
 - 提供状态监测接口
 
 层级结构：
-- L0: 感知层（Perception Layer）- 无自指能力，仅处理感知
-- L1: 自我状态层（Self-State Layer）- 完整认知积分，包含自我状态
-- L2: 元认知层（Meta-Cognitive Layer）- 高阶调控，物理隔离于 L0
+- L0: 感知层（Perception Layer）- 仅处理感知输入
+- L1: 状态层（State Layer）- 完整状态积分，包含系统状态
+- L2: 监控层（Monitoring Layer）- 高阶调控，物理隔离于 L0
 
 信息流：
 1. 外部输入 → L0（感知处理）
 2. L0 → L1（状态更新）
-3. L1 → L2（元认知监测）
+3. L1 → L2（状态监测）
 4. L2 → 调控信号 → L1（参数调整）
 
 调控循环：
 - L2 监测 L1 状态（定期，如每10步）
 - L2 输出调控信号
-- L1 根据调控调整元参数
+- L1 根据调控调整参数
 - L1 状态演化（使用 IntegrationEngine）
 """
 
@@ -54,6 +54,18 @@ from chronos_core.core.meta_cognitive.meta_cognitive_manager import (
     MetaCognitiveManager,
     MetaCognitiveManagerConfig,
 )
+from chronos_core.core.meta_cognitive.curiosity_engine import (
+    CuriosityEngine,
+    CuriosityConfig,
+    CuriosityMetrics,
+)
+from chronos_core.core.meta_cognitive.competitive_emergence import (
+    CompetitiveEmergence,
+    EmergenceConfig,
+    EmergenceState,
+    EmergenceIndicators,
+    EmergenceStatistics,
+)
 from chronos_core.utils.config import (
     DimensionalityConfig,
     MetaCognitiveConfig,
@@ -66,7 +78,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MetaCognitiveConfig:
-    """元认知模块配置"""
+    """递归状态监控模块配置"""
     
     # 系统层级配置
     use_l0: bool = True                     # 是否使用 L0 感知层
@@ -91,15 +103,19 @@ class MetaCognitiveConfig:
     state_monitoring_enabled: bool = True        # 是否启用状态监测
     monitoring_log_interval: int = 100           # 监测日志间隔步数
     
+    # 竞争性涌现配置
+    enable_emergence: bool = False               # 是否启用竞争性涌现（默认关闭）
+    emergence_calculation_interval: int = 10     # 涌现计算间隔步数
+    
     # 设备参数
     device: str = "cpu"
 
 
 class MetaCognitive(nn.Module):
     """
-    元认知模块
+    递归状态监控模块
     
-    整合 L0、L1、L2 三层结构，实现完整的元认知调控功能。
+    整合 L0、L1、L2 三层结构，实现完整的状态监控调控功能。
     
     功能：
     - 整合 L0、L1、L2 三层结构
@@ -109,10 +125,10 @@ class MetaCognitive(nn.Module):
     - 提供状态监测接口
     
     特性：
-    - L0 无自指能力，仅处理感知
-    - L1 包含完整自我状态
+    - L0 仅处理感知输入
+    - L1 包含完整系统状态
     - L2 高阶调控，物理隔离于 L0
-    - 自指截断机制
+    - 状态监控截断机制
     """
     
     def __init__(
@@ -153,17 +169,33 @@ class MetaCognitive(nn.Module):
         
         self.device = device or self.config.device
         
-        # 初始化各层
-        self._initialize_layers()
+        # 好奇心引擎
+        self.curiosity_engine: Optional[CuriosityEngine] = None
+        self._curiosity_config: Optional[CuriosityConfig] = None
         
-        # 初始化元认知管理器
-        self._initialize_manager()
+        # 竞争性涌现
+        self.emergence_detector: Optional[CompetitiveEmergence] = None
+        self._emergence_config: Optional[EmergenceConfig] = None
+        self._last_emergence_indicators: Optional[EmergenceIndicators] = None
         
         # 系统状态缓存
         self._current_step: int = 0
         self._l0_output_cache: Optional[torch.Tensor] = None
         self._l1_state_cache: Optional[Any] = None
         self._l2_control_cache: Optional[torch.Tensor] = None
+        self._last_curiosity_metrics: Optional[CuriosityMetrics] = None
+        
+        # 初始化各层
+        self._initialize_layers()
+        
+        # 初始化元认知管理器
+        self._initialize_manager()
+        
+        # 初始化好奇心引擎
+        self._initialize_curiosity_engine()
+        
+        # 初始化竞争性涌现
+        self._initialize_emergence()
         
         # 消融测试状态
         self._ablation_active: bool = False
@@ -242,6 +274,122 @@ class MetaCognitive(nn.Module):
             self.manager = None
             logger.info("MetaCognitiveManager disabled (L2 not available)")
     
+    def _initialize_curiosity_engine(self):
+        """初始化好奇心引擎"""
+        if hasattr(self.meta_config, 'enable_curiosity') and self.meta_config.enable_curiosity:
+            curiosity_config = CuriosityConfig(
+                enabled=True,
+                novelty_weight=getattr(self.meta_config, 'curiosity_novelty_weight', 0.4),
+                complexity_weight=getattr(self.meta_config, 'curiosity_complexity_weight', 0.3),
+                uncertainty_weight=getattr(self.meta_config, 'curiosity_uncertainty_weight', 0.3),
+                exploration_rate=getattr(self.meta_config, 'curiosity_exploration_rate', 0.1),
+                exploration_decay=getattr(self.meta_config, 'curiosity_exploration_decay', 0.995),
+                min_exploration_rate=getattr(self.meta_config, 'curiosity_min_exploration_rate', 0.01),
+                curiosity_decay_rate=getattr(self.meta_config, 'curiosity_decay_rate', 0.9),
+                history_window_size=getattr(self.meta_config, 'curiosity_history_window', 100),
+                device=self.device
+            )
+            self._curiosity_config = curiosity_config
+            self.curiosity_engine = CuriosityEngine(
+                config=curiosity_config,
+                device=self.device
+            )
+            logger.info("CuriosityEngine initialized and enabled")
+        else:
+            self.curiosity_engine = None
+            logger.info("CuriosityEngine disabled")
+    
+    def _initialize_emergence(self):
+        """初始化竞争性涌现判定器"""
+        if self.meta_config.enable_emergence:
+            emergence_config = EmergenceConfig(
+                enable_emergence=True,
+                calculation_window=getattr(self.meta_config, 'emergence_calculation_window', 200),
+                calculation_interval=self.config.emergence_calculation_interval,
+                state_entropy_weight=getattr(self.meta_config, 'emergence_state_entropy_weight', 0.30),
+                lyapunov_weight=getattr(self.meta_config, 'emergence_lyapunov_weight', 0.25),
+                attractor_dim_weight=getattr(self.meta_config, 'emergence_attractor_dim_weight', 0.20),
+                info_integration_weight=getattr(self.meta_config, 'emergence_info_integration_weight', 0.15),
+                response_diversity_weight=getattr(self.meta_config, 'emergence_response_diversity_weight', 0.10),
+                adaptability_weight=getattr(self.meta_config, 'emergence_adaptability_weight', 0.10),
+                emergence_threshold=getattr(self.meta_config, 'emergence_threshold', 0.65),
+                stable_threshold=getattr(self.meta_config, 'emergence_stable_threshold', 0.75),
+                disruption_threshold=getattr(self.meta_config, 'emergence_disruption_threshold', 0.40),
+                hysteresis_margin=getattr(self.meta_config, 'emergence_hysteresis_margin', 0.10),
+                min_state_duration=getattr(self.meta_config, 'emergence_min_state_duration', 50),
+                annealing_initial_temp=getattr(self.meta_config, 'emergence_annealing_initial_temp', 2.0),
+                annealing_cooling_rate=getattr(self.meta_config, 'emergence_annealing_cooling_rate', 0.995),
+                annealing_min_temp=getattr(self.meta_config, 'emergence_annealing_min_temp', 0.1),
+                device=self.device
+            )
+            self._emergence_config = emergence_config
+            self.emergence_detector = CompetitiveEmergence(
+                config=emergence_config,
+                device=self.device
+            )
+            self.emergence_detector.initialize()
+            logger.info("CompetitiveEmergence initialized and enabled")
+        else:
+            self.emergence_detector = None
+            self._emergence_config = None
+            logger.info("CompetitiveEmergence disabled")
+    
+    def compute_curiosity(self, input_vector: torch.Tensor, prediction_error: Optional[float] = None) -> Optional[CuriosityMetrics]:
+        """
+        计算输入的好奇心指标
+        
+        Args:
+            input_vector: 输入向量
+            prediction_error: 预测误差（可选）
+            
+        Returns:
+            好奇心指标（如果好奇心引擎启用）
+        """
+        if self.curiosity_engine is None:
+            return None
+        
+        metrics = self.curiosity_engine.compute_curiosity(input_vector, prediction_error)
+        self._last_curiosity_metrics = metrics
+        return metrics
+    
+    def select_input_with_curiosity(
+        self,
+        input_candidates: List[Tuple[str, torch.Tensor]],
+        prediction_errors: Optional[Dict[str, float]] = None,
+        epsilon_greedy: bool = True
+    ) -> Optional[Tuple[str, torch.Tensor, CuriosityMetrics]]:
+        """
+        使用好奇心驱动的策略选择输入
+        
+        Args:
+            input_candidates: 候选输入列表 [(input_id, input_data), ...]
+            prediction_errors: 各输入的预测误差字典
+            epsilon_greedy: 是否使用 epsilon-greedy 策略
+            
+        Returns:
+            (selected_id, selected_data, curiosity_metrics) 或 None
+        """
+        if self.curiosity_engine is None:
+            return None
+        
+        return self.curiosity_engine.select_input(
+            input_candidates=input_candidates,
+            prediction_errors=prediction_errors,
+            epsilon_greedy=epsilon_greedy
+        )
+    
+    def get_curiosity_statistics(self) -> Optional[Dict[str, Any]]:
+        """
+        获取好奇心引擎统计信息
+        
+        Returns:
+            统计信息字典或 None
+        """
+        if self.curiosity_engine is None:
+            return None
+        
+        return self.curiosity_engine.get_statistics()
+    
     def forward(
         self,
         semantic_input: torch.Tensor,
@@ -278,6 +426,19 @@ class MetaCognitive(nn.Module):
         dt = dt or 0.01
         
         outputs = {}
+        
+        # 0. 好奇心计算（如果启用）
+        if self.curiosity_engine is not None:
+            combined_input = torch.cat([semantic_input, physical_input], dim=0)
+            curiosity_metrics = self.compute_curiosity(combined_input, prediction_error)
+            if curiosity_metrics:
+                outputs["curiosity_metrics"] = curiosity_metrics
+                self._last_curiosity_metrics = curiosity_metrics
+                logger.debug(
+                    f"Curiosity: score={curiosity_metrics.curiosity_score:.4f}, "
+                    f"novelty={curiosity_metrics.novelty:.4f}, "
+                    f"complexity={curiosity_metrics.complexity:.4f}"
+                )
         
         # 1. L0 感知处理
         if self.l0_layer:
@@ -340,6 +501,10 @@ class MetaCognitive(nn.Module):
         # 更新步数
         self._current_step += 1
         self._stats["total_steps"] += 1
+        
+        # 竞争性涌现检测
+        if self.meta_config.enable_emergence and self.emergence_detector:
+            self._update_emergence_detection(outputs)
         
         # 消融测试检查
         if self.config.ablation_test_enabled:
@@ -490,6 +655,90 @@ class MetaCognitive(nn.Module):
             是否处于消融状态
         """
         return self._ablation_active
+    
+    def _update_emergence_detection(self, outputs: Dict[str, Any]):
+        """
+        更新竞争性涌现检测
+        
+        Args:
+            outputs: 前向传播输出字典
+        """
+        if self.emergence_detector is None:
+            return
+        
+        # 获取状态向量（优先使用 L1 状态）
+        state_vector = None
+        if self._l1_state_cache is not None and hasattr(self._l1_state_cache, 'E_fast'):
+            state_vector = self._l1_state_cache.E_fast
+        elif self._l0_output_cache is not None:
+            state_vector = self._l0_output_cache
+        else:
+            return
+        
+        # 获取响应向量（L2 控制信号作为响应）
+        response_vector = self._l2_control_cache
+        
+        # 更新涌现检测
+        indicators = self.emergence_detector.update(
+            state_vector=state_vector,
+            response_vector=response_vector
+        )
+        
+        self._last_emergence_indicators = indicators
+        
+        # 记录到输出中
+        outputs["emergence_indicators"] = indicators
+        outputs["emergence_state"] = self.emergence_detector.get_current_state()
+        
+        # 定期记录涌现状态
+        if self._current_step % self.config.monitoring_log_interval == 0:
+            logger.debug(
+                f"Emergence at step {self._current_step}: "
+                f"state={self.emergence_detector.get_current_state().value}, "
+                f"score={indicators.composite_score:.4f}"
+            )
+    
+    def get_emergence_state(self) -> EmergenceState:
+        """
+        获取当前涌现状态
+        
+        Returns:
+            当前涌现状态
+        """
+        if self.emergence_detector:
+            return self.emergence_detector.get_current_state()
+        return EmergenceState.LATENT
+    
+    def get_emergence_indicators(self) -> Optional[EmergenceIndicators]:
+        """
+        获取当前涌现指标
+        
+        Returns:
+            当前涌现指标（如果启用）
+        """
+        return self._last_emergence_indicators
+    
+    def get_emergence_statistics(self) -> Optional[EmergenceStatistics]:
+        """
+        获取涌现统计信息
+        
+        Returns:
+            涌现统计信息（如果启用）
+        """
+        if self.emergence_detector:
+            return self.emergence_detector.get_statistics()
+        return None
+    
+    def is_emerging(self) -> bool:
+        """
+        判断系统是否处于涌现状态
+        
+        Returns:
+            是否处于涌现状态
+        """
+        if self.emergence_detector:
+            return self.emergence_detector.is_emerging()
+        return False
     
     def _monitor_state(self):
         """
@@ -832,6 +1081,16 @@ class MetaCognitive(nn.Module):
         # 重置管理器
         if self.manager:
             self.manager.reset()
+        
+        # 重置好奇心引擎
+        if self.curiosity_engine:
+            self.curiosity_engine.reset()
+        
+        # 重置竞争性涌现
+        if self.emergence_detector:
+            self.emergence_detector.reset()
+        
+        self._last_emergence_indicators = None
         
         # 清空缓存
         self._current_step = 0

@@ -2,7 +2,7 @@
 
 ## 概述
 
-Chronos-Self 是一个基于连续动力学的自指涉意识建模系统，采用 Neural ODE 框架实现多时间尺度自我演化。系统设计基于 **自我指涉连续动力学（SRCD）** 理论框架，旨在探索认知系统的涌现机制。
+Chronos-Self 是一个基于连续动力学的状态监控系统，采用 Neural ODE 框架实现多时间尺度状态演化。系统设计基于 **自我指涉连续动力学（SRCD）** 理论框架，旨在探索动力学系统的稳态机制。
 
 ## 核心架构
 
@@ -78,7 +78,7 @@ X_log → PhysicalToSemanticCrossAttention → X_log_enriched
 
 **功能**:
 - 快速认知动态变化
-- 集成语义流、物理流、元认知调控信号
+- 集成语义流、物理流、监控调控信号
 - 混沌注入耦合到核心子空间
 - Neural ODE 自适应步长积分
 
@@ -91,7 +91,7 @@ dE_fast/dt = F(E_fast, E_slow, X_sem, X_log, ξ, η_meta)
 - `X_sem`: 语义输入
 - `X_log`: 逻辑输入
 - `ξ`: DMN 混沌注入信号
-- `η_meta`: 元认知调控向量
+- `η_meta`: 监控调控向量
 
 #### 2.2 慢变量动力学 (SlowDynamics)
 
@@ -174,11 +174,11 @@ dE_slow/dt = β * Pool(E_fast) + γ * (E_baseline - E_slow)
 
 ---
 
-### 4. 层级化自指与元认知调控
+### 4. 递归状态监控
 
 **路径**: `chronos_core/core/meta_cognitive/meta_cognitive_system.py`
 
-实现三层元认知架构。
+实现三层状态监控架构。
 
 #### 4.1 L0 感知层
 
@@ -206,7 +206,7 @@ dE_slow/dt = β * Pool(E_fast) + γ * (E_baseline - E_slow)
 - 包含完整自我状态信息
 - 可以引用 L0 的外部数据
 
-#### 4.3 L2 元认知层
+#### 4.3 L2 监控层
 
 **路径**: `chronos_core/core/meta_cognitive/meta_cognitive_layer.py`
 
@@ -469,7 +469,7 @@ class ChronosSystemController:
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                        MetaCognitiveSystem                                   │
 │  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────────┐   │
-│  │  L0 感知层       │───→│  L1 自我状态层   │───→│  L2 元认知层        │   │
+│  │  L0 感知层       │───→│  L1 状态层       │───→│  L2 监控层          │   │
 │  │  (无自指)        │    │  (包含SelfState)│    │  (物理隔离)         │   │
 │  └──────────────────┘    └──────────────────┘    └──────────────────────┘   │
 │                                                        │                    │

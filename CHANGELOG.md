@@ -14,6 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CONTRIBUTING.md（贡献指南）
   - docs/README.md（文档索引）
 
+- 竞争性稳态机制（Competitive Emergence）
+  - 退火竞争收敛算法
+  - 六指标综合判定体系（3动力学 + 3行为学）
+  - 稳态阈值动态调整
+
+- 探索驱动引擎（Curiosity Engine）
+  - L2 驱动的预测误差最小化
+  - 伪意图生成机制
+  - 探索驱动-预测误差循环
+
+- 训练系统端到端验证
+  - 完整训练循环测试
+  - 动力学对齐验证
+  - 冻结策略效果测试
+
 ### Changed
 
 - 动力学参数优化
@@ -26,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 将原架构文档迁移至 docs/architecture_original.md
   - 重写根目录 README.md，提升项目可访问性
 
+- ChronosSystem架构改进
+  - 继承 torch.nn.Module 实现标准模块管理
+  - 注册所有子模块（integration_engine, semantic_encoder, logical_encoder, fusion_module, meta_cognitive, training_system）
+  - 支持 .to(device)、.parameters()、.state_dict() 等标准 PyTorch 方法
+
 ### Fixed
 
 - 修复 test_config.py 默认值测试（匹配新的配置参数）
@@ -36,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复 coupling.py 类型注解（object → StateManager）
 - 修复 SSM forward NaN/Inf 检查缺失
 - 修复 neural_ode adaptive_integrate 无限循环风险（添加 max_retries）
+- 修复 ChronosSystem 子模块未注册问题（meta_cognitive, reflection, validation）
 
 ### Removed
 
@@ -70,21 +91,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 耦合机制（Coupling）
   - 状态管理器（State Manager）
 
-- 内源性默认模式网络（DMN）
+- 自持默认模式网络（DMN）
   - 混沌吸引子系统（Lorenz、Rossler、Chua）
   - 吸引子管理器（Attractor Manager）
   - 混沌注入器（Chaos Injector）
   - DMN系统集成
 
-- 层级化自指与元认知调控
+- 递归状态监控
   - 感知层（Perception Layer）
-  - 自我状态层（Self State Layer）
-  - 元认知层（Meta Cognitive Layer）
-  - 元认知管理器（Meta Cognitive Manager）
+  - 状态层（State Layer）
+  - 监控层（Monitoring Layer）
+  - 监控管理器（Meta Cognitive Manager）
 
-- 反思机制与睡眠重放
+- 反思机制与离线回放
   - 实时反思（Realtime Reflection）
-  - 睡眠重放（Sleep Replay）
+  - 离线回放（Offline Replay）
   - 睡眠更新器（Sleep Updater）
   - 反思系统集成
 
@@ -119,5 +140,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 无（初始版本）
 
-[unreleased]: https://github.com/Chronos-Self/Chronos-Self/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/Chronos-Self/Chronos-Self/releases/tag/v0.1.0
+[unreleased]: https://github.com/610005189/Chronos-Self/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/610005189/Chronos-Self/releases/tag/v0.1.0

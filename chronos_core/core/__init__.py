@@ -3,22 +3,22 @@ Chronos-Self Core 模块
 核心数据结构与状态管理系统
 
 包含：
-- SelfState: 自我状态类（快变量和慢变量）
+- SelfState: 系统状态类（快变量和慢变量）
 - StateManager: 状态管理器（初始化、更新、保存、加载）
 - ExternalInput: 外部输入类（语义流和物理流）
 - EvolutionHistory: 演化历史记录系统
 - Chaos: 混沌吸引子库（Lorenz, Rossler, Chua）
 - ChaosInjector: 高维混沌注入器
-- DefaultModeNetwork: 内源性默认模式网络系统
+- DefaultModeNetwork: 自持默认模式网络系统
 - Neural ODE 求解器
 - 快变量动力学系统
 - 慢变量动力学系统
 - 非对称耦合与稳定性机制
 - 完整积分引擎
-- 反思机制系统（Task 18-20）：
+- 反思机制系统：
   - 实时反思机制（RealtimeReflection）
-  - 睡眠重放系统（SleepReplay）
-  - 睡眠期梯度更新（SleepUpdater）
+  - 离线回放系统（SleepReplay）
+  - 离线期梯度更新（SleepUpdater）
   - 完整反思系统（ReflectionSystem）
 """
 

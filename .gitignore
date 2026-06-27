@@ -104,6 +104,14 @@ validation_tuned*
 configs/*.json
 !configs/default_config.json
 
+# Archive directory
+archive/
+
+# Root level temporary test scripts
+test_*.py
+run_*.py
+verify_*.py
+
 # Trae AI specs and workspace
 .trae/
 .trae-cn/

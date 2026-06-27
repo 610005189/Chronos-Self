@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "chronos-self"
 version = "0.1.0"
-description = "A self-referential continuous dynamics system with emergent consciousness"
+description = "A continuous time dynamics system with stable state representation"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -17,10 +17,9 @@ maintainers = [
 keywords = [
     "artificial-intelligence",
     "neural-ode",
-    "self-referential",
     "continuous-dynamics",
-    "emergent-consciousness",
-    "meta-cognition"
+    "state-monitoring",
+    "stable-representation"
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -68,10 +67,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/chronos-self/chronos-self"
-Documentation = "https://github.com/chronos-self/chronos-self#readme"
-Repository = "https://github.com/chronos-self/chronos-self.git"
-Issues = "https://github.com/chronos-self/chronos-self/issues"
+Homepage = "https://github.com/610005189/Chronos-Self"
+Documentation = "https://github.com/610005189/Chronos-Self#readme"
+Repository = "https://github.com/610005189/Chronos-Self.git"
+Issues = "https://github.com/610005189/Chronos-Self/issues"
 
 [project.scripts]
 chronos-train = "chronos_core.training.cli:main"

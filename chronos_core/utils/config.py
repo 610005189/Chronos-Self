@@ -251,6 +251,17 @@ class MetaCognitiveConfig:
     
     # L2 ablation threshold (minimum L1 function retention)
     l2_ablation_threshold: float = 0.4
+    
+    # 好奇心引擎配置
+    enable_curiosity: bool = False  # 是否启用好奇心引擎（默认关闭，向后兼容）
+    curiosity_novelty_weight: float = 0.4  # 新奇度权重
+    curiosity_complexity_weight: float = 0.3  # 复杂度权重
+    curiosity_uncertainty_weight: float = 0.3  # 不确定性权重
+    curiosity_exploration_rate: float = 0.1  # 探索率（epsilon-greedy）
+    curiosity_exploration_decay: float = 0.995  # 探索率衰减
+    curiosity_min_exploration_rate: float = 0.01  # 最小探索率
+    curiosity_decay_rate: float = 0.9  # 好奇心衰减率
+    curiosity_history_window: int = 100  # 历史窗口大小
 
 
 @dataclass

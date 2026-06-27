@@ -5,12 +5,12 @@
 整合所有核心组件，实现完整的系统流程：
 - 输入：外部输入（文本、环境状态等）
 - 处理：双通道编码 → 融合 → 积分引擎演化 → 状态更新
-- 调控：元认知监测 → 调控信号 → 参数调整
-- 反思：实时反思 → 睡眠重放 → 参数更新
+- 调控：状态监测 → 调控信号 → 参数调整
+- 反思：实时反思 → 离线回放 → 参数更新
 - 输出：系统响应（行为输出、状态报告）
 
 核心功能：
-1. 整合所有核心组件（表征系统、积分引擎、元认知模块、反思模块、训练、验证模块）
+1. 整合所有核心组件（表征系统、积分引擎、状态监控模块、反思模块、训练、验证模块）
 2. 实现完整系统流程（输入→积分→输出）
 3. 实现系统控制器（启动、运行、停止、生命周期管理）
 4. 提供统一接口（处理输入、获取状态、生成输出）
@@ -19,29 +19,10 @@
 - ChronosSystem: 完整系统实例
 - ChronosSystemController: 系统控制器
 - SystemState: 系统状态管理
-
-使用示例：
-    # 创建系统
-    system = ChronosSystem(config=ChronosSystemConfig())
-    system.initialize()
-    
-    # 创建控制器
-    controller = ChronosSystemController(system)
-    
-    # 启动系统
-    controller.start()
-    
-    # 处理输入
-    response = controller.process_input(text_input="你好")
-    
-    # 获取状态
-    state = controller.get_system_state()
-    
-    # 停止系统
-    controller.stop()
 """
 
 import torch
+import torch.nn as nn
 import numpy as np
 from typing import Dict, List, Optional, Any, Union, Tuple
 from dataclasses import dataclass, field
@@ -122,6 +103,9 @@ class ChronosSystemConfig:
     
     # 元认知系统
     enable_meta_cognitive: bool = True
+    
+    # 好奇心引擎
+    enable_curiosity: bool = False  # 默认关闭，向后兼容
     
     # 反思系统
     enable_reflection: bool = True
@@ -242,7 +226,7 @@ class SystemResponse:
         }
 
 
-class ChronosSystem:
+class ChronosSystem(nn.Module):
     """
     完整 Chronos-Self 系统
     
@@ -291,6 +275,8 @@ class ChronosSystem:
             device: 计算设备
             seed: 随机种子
         """
+        super().__init__()
+        
         # 配置
         self.config = config or ChronosSystemConfig()
         self.global_config = global_config or ChronosConfig()
@@ -364,6 +350,7 @@ class ChronosSystem:
                 seed=self.seed
             )
             self.integration_engine.initialize()
+            self.add_module('integration_engine', self.integration_engine)
             
             # 2. 初始化默认模式网络
             logger.info("[2/8] 初始化默认模式网络...")
@@ -393,6 +380,7 @@ class ChronosSystem:
                     device=self.device,
                     config=self.global_config.encoder
                 )
+                self.add_module('semantic_encoder', self.semantic_encoder)
             
             # 5. 初始化逻辑编码器
             logger.info("[5/8] 初始化逻辑编码器...")
@@ -401,6 +389,7 @@ class ChronosSystem:
                     config=self.global_config.encoder
                 )
                 self.logical_encoder.to(self.device)
+                self.add_module('logical_encoder', self.logical_encoder)
             
             # 6. 初始化融合模块
             logger.info("[6/8] 初始化融合模块...")
@@ -412,14 +401,18 @@ class ChronosSystem:
                     fusion_dim=self.global_config.dim.fusion_dim
                 )
                 self.fusion_module.to(self.device)
+                self.add_module('fusion_module', self.fusion_module)
             
             # 7. 初始化元认知模块
             logger.info("[7/8] 初始化元认知模块...")
             if self.config.enable_meta_cognitive:
+                if self.config.enable_curiosity:
+                    self.global_config.meta_cognitive.enable_curiosity = True
                 self.meta_cognitive = MetaCognitive(
                     global_config=self.global_config,
                     device=self.device
                 )
+                self.add_module('meta_cognitive', self.meta_cognitive)
             
             # 8. 初始化反思模块
             logger.info("[8/8] 初始化反思模块...")
@@ -449,6 +442,7 @@ class ChronosSystem:
                     device=self.device
                 )
                 self.training_system.initialize()
+                self.add_module('training_system', self.training_system)
             
             # 初始化验证模块（可选）
             if self.config.enable_validation_system:

@@ -56,7 +56,7 @@ from chronos_core.core.state import SelfState
 from chronos_core.core.external_input import ExternalInput
 from chronos_core.core.integration_engine import IntegrationEngine
 from chronos_core.core.reflection.reflection_system import ReflectionSystem
-from chronos_core.core.meta_cognitive.meta_cognitive_system import MetaCognitiveSystem
+from chronos_core.core.meta_cognitive.meta_cognitive_system import MetaCognitive as MetaCognitiveSystem
 
 from chronos_core.training.loss_functions import (
     LossFunctions,
@@ -250,6 +250,9 @@ class TrainingSystem(nn.Module):
         # 冻结策略结果
         self._freezing_result: Optional[Dict[str, Any]] = None
 
+        # 预测头网络（用于训练测试）
+        self._prediction_head: Optional[nn.Module] = None
+
         # 初始化标志
         self._initialized = False
 
@@ -319,6 +322,13 @@ class TrainingSystem(nn.Module):
             self.device
         )
 
+        # 创建预测头网络（用于训练测试）
+        self._prediction_head = nn.Sequential(
+            nn.Linear(self.config.fast_dim, self.config.fast_dim),
+            nn.ReLU(),
+            nn.Linear(self.config.fast_dim, self.config.fast_dim)
+        ).to(self.device)
+
         # 应用冻结策略
         self._apply_freezing_strategy()
 
@@ -386,6 +396,11 @@ class TrainingSystem(nn.Module):
 
         if self.meta_cognitive_system:
             for param in self.meta_cognitive_system.parameters():
+                if param.requires_grad:
+                    trainable_params.append(param)
+
+        if self._prediction_head:
+            for param in self._prediction_head.parameters():
                 if param.requires_grad:
                     trainable_params.append(param)
 
@@ -675,17 +690,25 @@ class TrainingSystem(nn.Module):
         Returns:
             损失字典
         """
-        # 创建预测状态（简化：使用当前状态的扰动）
+        # 使用预测头生成预测状态（确保梯度传播）
+        E_fast = current_state.E_fast.to(self.device)
+        E_slow = current_state.E_slow.to(self.device)
+        
+        # 通过预测头计算预测（这一步会有梯度）
+        predicted_fast = self._prediction_head(E_fast)
+        predicted_slow = E_slow + 0.01 * torch.randn_like(E_slow, device=self.device)
+        
+        # 创建预测状态
         predicted_state = SelfState(
-            E_fast=current_state.E_fast + torch.randn_like(current_state.E_fast) * 0.01,
-            E_slow=current_state.E_slow + torch.randn_like(current_state.E_slow) * 0.01,
+            E_fast=predicted_fast,
+            E_slow=predicted_slow,
             timestamp=current_state.timestamp + 0.01
         )
 
-        # 创建自预测状态（简化）
+        # 创建自预测状态
         self_predicted_state = SelfState(
-            E_fast=current_state.E_fast.clone(),
-            E_slow=current_state.E_slow.clone(),
+            E_fast=predicted_fast.clone(),
+            E_slow=predicted_slow.clone(),
             timestamp=current_state.timestamp + 0.01
         )
 
@@ -696,11 +719,17 @@ class TrainingSystem(nn.Module):
             self_predicted_state=self_predicted_state
         )
 
-        # 计算动力学对齐损失（简化）
-        alignment_losses = self.dynamics_alignment.compute_alignment_losses(
-            integration_engine=self.integration_engine,
-            initial_state=current_state
-        )
+        # 计算动力学对齐损失（使用 detach 的状态，避免梯度问题）
+        with torch.no_grad():
+            alignment_state = SelfState(
+                E_fast=predicted_fast.detach(),
+                E_slow=predicted_slow.detach(),
+                timestamp=current_state.timestamp
+            )
+            alignment_losses = self.dynamics_alignment.compute_alignment_losses(
+                integration_engine=self.integration_engine,
+                initial_state=alignment_state
+            )
 
         # 合并所有损失
         total_loss = losses['total'] + alignment_losses['total'] * 0.1

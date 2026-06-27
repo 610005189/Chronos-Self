@@ -13,10 +13,10 @@ setup(
     version="0.1.0",
     author="Chronos-Self Team",
     author_email="team@chronos-self.ai",
-    description="A self-referential continuous dynamics system with emergent consciousness",
+    description="A continuous time dynamics system with stable state representation",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/chronos-self/chronos-self",
+    url="https://github.com/610005189/Chronos-Self",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",
