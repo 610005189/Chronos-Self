@@ -145,12 +145,18 @@ class StateSpaceModel(nn.Module):
         """
         batch_size, seq_len, _ = x.shape
 
+        # Input NaN/Inf check
+        if torch.isnan(x).any() or torch.isinf(x).any():
+            x = torch.nan_to_num(x, nan=0.0, posinf=1e6, neginf=-1e6)
+
         # Discretize matrices
         A_bar, B_bar = self._discretize()
 
         # Initialize hidden state if not provided
         if hidden_state is None:
             hidden_state = torch.zeros(batch_size, self.state_dim, device=x.device, dtype=x.dtype)
+        elif torch.isnan(hidden_state).any() or torch.isinf(hidden_state).any():
+            hidden_state = torch.nan_to_num(hidden_state, nan=0.0, posinf=1e6, neginf=-1e6)
 
         # Process sequence step by step (can be parallelized with scan)
         outputs = []
@@ -159,6 +165,10 @@ class StateSpaceModel(nn.Module):
         for t in range(seq_len):
             # Update state: h_t = A_bar @ h_{t-1} + B_bar @ x_t
             h = torch.matmul(h, A_bar.t()) + torch.matmul(x[:, t, :], B_bar.t())
+
+            # Check for NaN/Inf after each step (optional, can be disabled for performance)
+            if torch.isnan(h).any() or torch.isinf(h).any():
+                h = torch.nan_to_num(h, nan=0.0, posinf=1e6, neginf=-1e6)
 
             # Compute output: y_t = C @ h_t + D @ x_t
             y = torch.matmul(h, self.C.t())
@@ -171,6 +181,10 @@ class StateSpaceModel(nn.Module):
 
         # Stack outputs
         output = torch.stack(outputs, dim=1)  # (batch_size, seq_len, output_dim)
+
+        # Final NaN/Inf check on output
+        if torch.isnan(output).any() or torch.isinf(output).any():
+            output = torch.nan_to_num(output, nan=0.0, posinf=1e6, neginf=-1e6)
 
         # Apply layer normalization and dropout
         output = self.layer_norm(output)

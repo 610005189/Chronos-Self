@@ -5,7 +5,7 @@ SelfState 类定义 - 自我状态数据结构
 
 import torch
 import copy
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, ClassVar
 from dataclasses import dataclass, field
 import logging
 
@@ -20,16 +20,12 @@ class SelfState:
     包含快变量（反映短期感知和情绪反应）和慢变量（反映长期人格和目标）
 
     Attributes:
-        E_fast: 快变量张量，维度 D_f = 2048，反映毫秒-秒级的状态变化
-        E_slow: 慢变量张量，维度 D_s = 512，反映小时-天级的状态变化
+        E_fast: 快变量张量，反映毫秒-秒级的状态变化
+        E_slow: 慢变量张量，反映小时-天级的状态变化
         timestamp: 当前时间戳（模拟时间，单位：秒）
         history: 演化历史记录列表，每个元素为 (timestamp, E_fast_norm, E_slow_norm) 的元组
         metadata: 额外的元数据信息
     """
-
-    # 状态变量维度常量
-    FAST_DIM: int = field(default=2048, init=False, repr=False)
-    SLOW_DIM: int = field(default=512, init=False, repr=False)
 
     # 核心状态变量
     E_fast: torch.Tensor = field(default=None)
@@ -38,31 +34,47 @@ class SelfState:
     history: List[Tuple[float, float, float]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    # 默认维度常量
+    FAST_DIM: ClassVar[int] = 2048
+    SLOW_DIM: ClassVar[int] = 512
+    
+    # 默认维度（用于向后兼容，当没有传入张量时使用）
+    _default_fast_dim: int = field(default=2048, init=False, repr=False)
+    _default_slow_dim: int = field(default=512, init=False, repr=False)
+
     def __post_init__(self):
         """初始化后处理，确保张量维度正确"""
         if self.E_fast is None:
-            self.E_fast = torch.zeros(self.FAST_DIM)
+            self.E_fast = torch.zeros(self._default_fast_dim)
             logger.debug(f"Initialized E_fast with zeros: shape {self.E_fast.shape}")
-        elif isinstance(self.E_fast, torch.Tensor):
-            if self.E_fast.shape[0] != self.FAST_DIM:
-                raise ValueError(
-                    f"E_fast dimension mismatch: expected {self.FAST_DIM}, "
-                    f"got {self.E_fast.shape[0]}"
-                )
-        else:
+        elif not isinstance(self.E_fast, torch.Tensor):
             self.E_fast = torch.tensor(self.E_fast, dtype=torch.float32)
+        else:
+            if self.E_fast.dtype != torch.float32:
+                self.E_fast = self.E_fast.float()
+            if self.E_fast.dim() != 1:
+                raise ValueError(
+                    f"E_fast must be a 1D tensor, got {self.E_fast.dim()}D with shape {self.E_fast.shape}"
+                )
+            if torch.isnan(self.E_fast).any() or torch.isinf(self.E_fast).any():
+                logger.warning("E_fast contains NaN or Inf values, clamping")
+                self.E_fast = torch.nan_to_num(self.E_fast, nan=0.0, posinf=1e6, neginf=-1e6)
 
         if self.E_slow is None:
-            self.E_slow = torch.zeros(self.SLOW_DIM)
+            self.E_slow = torch.zeros(self._default_slow_dim)
             logger.debug(f"Initialized E_slow with zeros: shape {self.E_slow.shape}")
-        elif isinstance(self.E_slow, torch.Tensor):
-            if self.E_slow.shape[0] != self.SLOW_DIM:
-                raise ValueError(
-                    f"E_slow dimension mismatch: expected {self.SLOW_DIM}, "
-                    f"got {self.E_slow.shape[0]}"
-                )
-        else:
+        elif not isinstance(self.E_slow, torch.Tensor):
             self.E_slow = torch.tensor(self.E_slow, dtype=torch.float32)
+        else:
+            if self.E_slow.dtype != torch.float32:
+                self.E_slow = self.E_slow.float()
+            if self.E_slow.dim() != 1:
+                raise ValueError(
+                    f"E_slow must be a 1D tensor, got {self.E_slow.dim()}D with shape {self.E_slow.shape}"
+                )
+            if torch.isnan(self.E_slow).any() or torch.isinf(self.E_slow).any():
+                logger.warning("E_slow contains NaN or Inf values, clamping")
+                self.E_slow = torch.nan_to_num(self.E_slow, nan=0.0, posinf=1e6, neginf=-1e6)
 
         # 确保张量是连续的
         self.E_fast = self.E_fast.contiguous()
@@ -154,17 +166,15 @@ class SelfState:
         """
         errors = []
 
-        # 检查张量维度
-        if self.E_fast.shape[0] != self.FAST_DIM:
+        # 检查张量是否为一维
+        if self.E_fast.dim() != 1:
             errors.append(
-                f"E_fast dimension mismatch: expected {self.FAST_DIM}, "
-                f"got {self.E_fast.shape[0]}"
+                f"E_fast should be 1D, got {self.E_fast.dim()}D"
             )
 
-        if self.E_slow.shape[0] != self.SLOW_DIM:
+        if self.E_slow.dim() != 1:
             errors.append(
-                f"E_slow dimension mismatch: expected {self.SLOW_DIM}, "
-                f"got {self.E_slow.shape[0]}"
+                f"E_slow should be 1D, got {self.E_slow.dim()}D"
             )
 
         # 检查数值稳定性（NaN 和 Inf）

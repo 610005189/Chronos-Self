@@ -139,10 +139,17 @@ class MetaCognitiveSystem(nn.Module):
         
         # 合并配置
         self.config = config or MetaCognitiveSystemConfig()
-        self.dim_config = dim_config or DimensionalityConfig()
-        self.meta_config = meta_config or MetaCognitiveConfig()
-        self.memory_config = memory_config or MemoryTemporalConfig()
         self.global_config = global_config
+        
+        # 从 global_config 提取配置（如果提供了）
+        if global_config:
+            self.dim_config = dim_config or global_config.dim
+            self.meta_config = meta_config or global_config.meta_cognitive
+            self.memory_config = memory_config or global_config.memory_temporal
+        else:
+            self.dim_config = dim_config or DimensionalityConfig()
+            self.meta_config = meta_config or MetaCognitiveConfig()
+            self.memory_config = memory_config or MemoryTemporalConfig()
         
         self.device = device or self.config.device
         

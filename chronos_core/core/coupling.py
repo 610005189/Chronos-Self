@@ -13,12 +13,15 @@
 
 import torch
 import numpy as np
-from typing import Optional, Dict, Tuple, List
+from typing import Optional, Dict, Tuple, List, TYPE_CHECKING
 import logging
 from dataclasses import dataclass, field
 import math
 
 from chronos_core.utils.config import CouplingStabilityConfig, DimensionalityConfig
+
+if TYPE_CHECKING:
+    from chronos_core.core.state_manager import StateManager
 
 logger = logging.getLogger(__name__)
 
@@ -692,7 +695,7 @@ class CouplingAndStabilitySystem:
     def apply_stability_actions(
         self,
         actions: List[str],
-        state_manager: Optional[object] = None
+        state_manager: Optional["StateManager"] = None
     ) -> None:
         """
         应用稳定性保障措施

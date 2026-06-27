@@ -61,6 +61,11 @@ class FastDynamicsConfig:
     use_attention: bool = False
     attention_heads: int = 8
 
+    # 傅里叶特征映射配置
+    fourier_enabled: bool = True  # 是否启用傅里叶特征映射
+    fourier_n_features: int = 1024  # 傅里叶特征数量
+    fourier_scale: float = 2.0  # 傅里叶特征缩放因子
+
 
 class EvolutionFunctionMLP(nn.Module):
     """
@@ -108,20 +113,20 @@ class EvolutionFunctionMLP(nn.Module):
         else:
             act_fn = nn.Tanh()
 
-        # 构建网络层
+        # 构建网络层（使用谱归一化）
         layers = []
 
         # 输入层
-        layers.append(nn.Linear(input_dim, hidden_dim))
+        layers.append(nn.utils.spectral_norm(nn.Linear(input_dim, hidden_dim)))
         layers.append(act_fn)
 
         # 隐藏层
         for _ in range(num_hidden_layers):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.utils.spectral_norm(nn.Linear(hidden_dim, hidden_dim)))
             layers.append(act_fn)
 
         # 输出层（不使用激活函数，允许正负输出）
-        layers.append(nn.Linear(hidden_dim, output_dim))
+        layers.append(nn.utils.spectral_norm(nn.Linear(hidden_dim, output_dim)))
 
         # 组合成序列
         self.network = nn.Sequential(*layers)
@@ -138,8 +143,14 @@ class EvolutionFunctionMLP(nn.Module):
     def _init_weights(self):
         """初始化网络权重"""
         for layer in self.network:
-            if isinstance(layer, nn.Linear):
-                # Xavier 初始化
+            if hasattr(layer, 'weight_orig'):
+                # 谱归一化层：只初始化 weight_orig（原始权重）
+                # weight_u 和 weight_v 是向量，会在前向传播中自动更新
+                nn.init.xavier_uniform_(layer.weight_orig, gain=1.0)
+                if hasattr(layer, 'bias') and layer.bias is not None:
+                    nn.init.constant_(layer.bias, 0.001)
+            elif isinstance(layer, nn.Linear):
+                # 普通线性层（如果谱归一化被移除）
                 nn.init.xavier_uniform_(layer.weight, gain=1.0)
                 # 偏置初始化为小值
                 nn.init.constant_(layer.bias, 0.001)
@@ -155,6 +166,17 @@ class EvolutionFunctionMLP(nn.Module):
             输出向量（状态导数）
         """
         return self.network(x)
+
+    def remove_spectral_norm(self) -> None:
+        """
+        移除所有谱归一化包装（用于调试或推理优化）
+
+        警告：移除谱归一化后，权重将不再受Lipschitz约束
+        """
+        for i, layer in enumerate(self.network):
+            if hasattr(layer, 'weight_u'):  # 检测谱归一化包装（PyTorch使用 weight_u）
+                self.network[i] = nn.utils.remove_spectral_norm(layer)
+        logger.info("Spectral normalization removed from EvolutionFunctionMLP")
 
 
 class EvolutionFunctionTransformer(nn.Module):
@@ -189,14 +211,14 @@ class EvolutionFunctionTransformer(nn.Module):
         self.state_dim = state_dim
         self.hidden_dim = hidden_dim
 
-        # 输入投影层（将各输入源投影到统一维度）
+        # 输入投影层（将各输入源投影到统一维度，使用谱归一化）
         self.input_projections = nn.ModuleDict({
-            name: nn.Linear(dim, hidden_dim)
+            name: nn.utils.spectral_norm(nn.Linear(dim, hidden_dim))
             for name, dim in input_dims.items()
         })
 
-        # 状态投影
-        self.state_projection = nn.Linear(state_dim, hidden_dim)
+        # 状态投影（使用谱归一化）
+        self.state_projection = nn.utils.spectral_norm(nn.Linear(state_dim, hidden_dim))
 
         # Transformer 编码器
         encoder_layer = nn.TransformerEncoderLayer(
@@ -212,11 +234,11 @@ class EvolutionFunctionTransformer(nn.Module):
             num_layers=num_layers
         )
 
-        # 输出层
-        self.output_layer = nn.Linear(hidden_dim, state_dim)
+        # 输出层（使用谱归一化）
+        self.output_layer = nn.utils.spectral_norm(nn.Linear(hidden_dim, state_dim))
 
-        # 时间编码
-        self.time_encoding = nn.Linear(1, hidden_dim)
+        # 时间编码（使用谱归一化）
+        self.time_encoding = nn.utils.spectral_norm(nn.Linear(1, hidden_dim))
 
         logger.info(
             f"EvolutionFunctionTransformer created: state_dim={state_dim}, "
@@ -271,6 +293,27 @@ class EvolutionFunctionTransformer(nn.Module):
 
         return output
 
+    def remove_spectral_norm(self) -> None:
+        """
+        移除所有谱归一化包装（用于调试或推理优化）
+
+        警告：移除谱归一化后，权重将不再受Lipschitz约束
+        """
+        # 移除输入投影层的谱归一化
+        for name, projection in self.input_projections.items():
+            if hasattr(projection, 'weight_u'):  # 检测谱归一化包装（PyTorch使用 weight_u）
+                self.input_projections[name] = nn.utils.remove_spectral_norm(projection)
+
+        # 移除其他层的谱归一化
+        if hasattr(self.state_projection, 'weight_u'):
+            self.state_projection = nn.utils.remove_spectral_norm(self.state_projection)
+        if hasattr(self.output_layer, 'weight_u'):
+            self.output_layer = nn.utils.remove_spectral_norm(self.output_layer)
+        if hasattr(self.time_encoding, 'weight_u'):
+            self.time_encoding = nn.utils.remove_spectral_norm(self.time_encoding)
+
+        logger.info("Spectral normalization removed from EvolutionFunctionTransformer")
+
 
 class FastDynamicsFunction(DynamicsFunction):
     """
@@ -321,18 +364,41 @@ class FastDynamicsFunction(DynamicsFunction):
             self.config.chaos_dim = dim_config.core_subspace_dim
 
         if meta_config:
-            self.config.meta_cognitive_dim = meta_config.l2_hidden_dim
+            self.config.meta_cognitive_dim = meta_config.control_output_dim
 
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
 
+        # 初始化傅里叶特征映射
+        if self.config.fourier_enabled:
+            # 创建随机固定矩阵 B，用于傅里叶特征映射
+            # B 的形状: [n_features, fusion_dim]
+            fourier_B = torch.randn(
+                self.config.fourier_n_features,
+                self.config.fusion_dim
+            ) * self.config.fourier_scale
+            # 注册为 buffer（不参与训练，但会随模型移动到设备）
+            self.register_buffer('fourier_B', fourier_B)
+            logger.info(
+                f"Fourier feature mapping enabled: n_features={self.config.fourier_n_features}, "
+                f"scale={self.config.fourier_scale}"
+            )
+        else:
+            self.fourier_B = None
+
         # 计算总输入维度
-        # E_fast + E_slow + X_sem + X_log + X_fused + C(t) + B(t) + t
+        # E_fast + E_slow + X_sem + X_log + X_fused(or fourier_features) + C(t) + B(t) + t
+        if self.config.fourier_enabled:
+            # 使用傅里叶特征映射时，fusion_dim 被 2*n_features 替代
+            fusion_input_dim = self.config.fourier_n_features * 2
+        else:
+            fusion_input_dim = self.config.fusion_dim
+
         self.total_input_dim = (
             self.config.fast_dim +
             self.config.slow_dim +
             self.config.semantic_dim +
             self.config.physical_dim +
-            self.config.fusion_dim +
+            fusion_input_dim +
             self.config.meta_cognitive_dim +
             self.config.chaos_dim +
             1  # 时间维度
@@ -367,10 +433,14 @@ class FastDynamicsFunction(DynamicsFunction):
                 activation=self.config.activation
             )
 
-        # 衰减项（自然衰减）
-        self.decay_layer = nn.Linear(self.config.fast_dim, self.config.fast_dim, bias=False)
-        # 初始化为负值，产生衰减效果
-        nn.init.constant_(self.decay_layer.weight, -self.config.decay_rate)
+        # 衰减项（自然衰减，使用谱归一化）
+        self.decay_layer = nn.utils.spectral_norm(
+            nn.Linear(self.config.fast_dim, self.config.fast_dim, bias=False)
+        )
+        # 初始化衰减层的 weight_orig（原始权重）
+        # 设置为负值，产生衰减效果
+        # weight_u 和 weight_v 会在前向传播中自动更新
+        nn.init.constant_(self.decay_layer.weight_orig, -self.config.decay_rate)
 
         # 将网络移到设备上
         self.to(self.device)
@@ -446,11 +516,29 @@ class FastDynamicsFunction(DynamicsFunction):
         else:
             input_parts.append(torch.zeros(batch_size, self.config.physical_dim, device=self.device))
 
-        # 5. 融合表征
+        # 5. 融合表征（应用傅里叶特征映射）
         if X_fused is not None:
-            input_parts.append(X_fused.to(self.device))
+            X_fused = X_fused.to(self.device)
+            if self.config.fourier_enabled:
+                # 应用傅里叶特征映射
+                # X_fused: [batch_size, fusion_dim]
+                # fourier_B: [n_features, fusion_dim]
+                # B @ X_fused.T: [n_features, batch_size]
+                # 转置后: [batch_size, n_features]
+                projected = torch.matmul(self.fourier_B, X_fused.T).T  # [batch_size, n_features]
+                gamma_X = torch.cat([
+                    torch.cos(projected),
+                    torch.sin(projected)
+                ], dim=-1)  # [batch_size, 2*n_features]
+                input_parts.append(gamma_X)
+            else:
+                input_parts.append(X_fused)
         else:
-            input_parts.append(torch.zeros(batch_size, self.config.fusion_dim, device=self.device))
+            # 缺失输入用零填充
+            if self.config.fourier_enabled:
+                input_parts.append(torch.zeros(batch_size, self.config.fourier_n_features * 2, device=self.device))
+            else:
+                input_parts.append(torch.zeros(batch_size, self.config.fusion_dim, device=self.device))
 
         # 6. 元认知调控信号
         if C_meta is not None:
@@ -470,8 +558,8 @@ class FastDynamicsFunction(DynamicsFunction):
                 )
                 B_chaos = torch.cat([B_chaos.to(self.device), padding], dim=-1)
             elif B_chaos.shape[-1] > self.config.chaos_dim:
-                # 截断
-                B_chaos = B_chaos[:self.config.chaos_dim].to(self.device)
+                # 截断（支持批量）
+                B_chaos = B_chaos[..., :self.config.chaos_dim].to(self.device)
             input_parts.append(B_chaos)
         else:
             input_parts.append(torch.zeros(batch_size, self.config.chaos_dim, device=self.device))
@@ -590,6 +678,22 @@ class FastDynamicsFunction(DynamicsFunction):
         self._cached_C_meta = None
         self._cached_B_chaos = None
 
+    def remove_spectral_norm(self) -> None:
+        """
+        移除所有谱归一化包装（用于调试或推理优化）
+
+        警告：移除谱归一化后，权重将不再受Lipschitz约束
+        """
+        # 移除演化函数中的谱归一化
+        if hasattr(self.evolution_fn, 'remove_spectral_norm'):
+            self.evolution_fn.remove_spectral_norm()
+
+        # 移除衰减层的谱归一化
+        if hasattr(self.decay_layer, 'weight_u'):  # 检测谱归一化包装（PyTorch使用 weight_u）
+            self.decay_layer = nn.utils.remove_spectral_norm(self.decay_layer)
+
+        logger.info("Spectral normalization removed from FastDynamicsFunction")
+
     def get_statistics(self) -> Dict:
         """获取统计信息"""
         stats = {
@@ -598,8 +702,14 @@ class FastDynamicsFunction(DynamicsFunction):
             "total_input_dim": self.total_input_dim,
             "decay_rate": self.config.decay_rate,
             "noise_scale": self.config.noise_scale,
+            "fourier_enabled": self.config.fourier_enabled,
             "device": self.device
         }
+
+        # 添加傅里叶特征映射信息
+        if self.config.fourier_enabled:
+            stats["fourier_n_features"] = self.config.fourier_n_features
+            stats["fourier_scale"] = self.config.fourier_scale
 
         # 网络参数统计
         total_params = sum(p.numel() for p in self.parameters())
@@ -660,9 +770,19 @@ class FastDynamicsSystem(nn.Module):
 
         self.config = config or FastDynamicsConfig()
 
+        self.dim_config = dim_config
+        self.meta_config = meta_config
+
         if dim_config:
             self.config.fast_dim = dim_config.fast_variable_dim
             self.config.slow_dim = dim_config.slow_variable_dim
+            self.config.semantic_dim = dim_config.semantic_dim
+            self.config.physical_dim = dim_config.physical_dim
+            self.config.fusion_dim = dim_config.fusion_dim
+            self.config.chaos_dim = dim_config.core_subspace_dim
+
+        if meta_config:
+            self.config.meta_cognitive_dim = meta_config.control_output_dim
 
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -874,6 +994,16 @@ class FastDynamicsSystem(nn.Module):
         self._stability_log_counter = 0
 
         logger.info("FastDynamicsSystem reset")
+
+    def remove_spectral_norm(self) -> None:
+        """
+        移除所有谱归一化包装（用于调试或推理优化）
+
+        警告：移除谱归一化后，权重将不再受Lipschitz约束
+        """
+        if self.dynamics_fn and hasattr(self.dynamics_fn, 'remove_spectral_norm'):
+            self.dynamics_fn.remove_spectral_norm()
+        logger.info("Spectral normalization removed from FastDynamicsSystem")
 
     def __repr__(self) -> str:
         status = "initialized" if self._initialized else "not_initialized"

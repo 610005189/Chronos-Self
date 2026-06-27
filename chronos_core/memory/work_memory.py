@@ -32,7 +32,7 @@ class ChunkType(Enum):
     SEMANTIC = "semantic"       # 语义类组块（目标、意图）
     EMOTIONAL = "emotional"     # 情感类组块（情绪状态）
     PHYSICAL = "physical"       # 物理类组块（环境状态）
-    PROPRI0CEPTIVE = "proprioceptive"  # 本体感觉类组块（内部状态）
+    PROPRIOCEPTIVE = "proprioceptive"  # 本体感觉类组块（内部状态）
     CAUSAL = "causal"          # 因果类组块（因果链条）
     HYBRID = "hybrid"          # 混合类组块（多类型融合）
     TEMPORARY = "temporary"    # 临时组块（短期处理）
@@ -813,7 +813,7 @@ class WorkingMemory:
             weights = torch.ones(self.chunk_dim)
             # 前半部分权重较高（假设物理信息集中在前面）
             weights[:self.chunk_dim // 2] = 2.0
-        elif chunk_type == ChunkType.PROPRI0CEPTIVE:
+        elif chunk_type == ChunkType.PROPRIOCEPTIVE:
             # 基于本体感觉维度分配权重
             weights = torch.ones(self.chunk_dim)
             # 后半部分权重较高（假设本体感觉集中在后面）
@@ -1519,6 +1519,9 @@ class WorkingMemory:
             "active_chunks": self._stats['current_active_count'],
             "dormant_chunks": self._stats['current_dormant_count'],
             "history_chunks": len(self._history_chunks),
+            "total_chunks_created": self._stats['total_chunks_created'],
+            "total_chunks_removed": self._stats['total_chunks_removed'],
+            "total_chunks_restored": self._stats['total_chunks_restored'],
             "activation_stats": activation_stats,
             "creation_stats": {
                 "total_created": self._stats['total_chunks_created'],
@@ -1653,6 +1656,291 @@ class WorkingMemory:
         """获取当前组块数量"""
         return len(self._chunks)
     
+    # ==================== 线性注意力检索 ====================
+
+    def _linear_attention_feature_map(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        线性注意力特征映射函数
+
+        使用 elu(x) + 1 作为特征映射，保证非负性和数值稳定性
+
+        理论基础：
+        - 线性注意力将 softmax(Q·K^T)·V 分解为：
+          φ(Q)·(φ(K)^T·V) / (φ(Q)·φ(K)^T·1)
+        - 特征映射 φ(x) = elu(x) + 1 保证非负性
+        - 时间复杂度从 O(N²) 降至 O(N)
+
+        Args:
+            x: 输入张量 (batch_size, dim) 或 (dim)
+
+        Returns:
+            特征映射后的张量，保证非负
+        """
+        # elu(x) + 1 保证非负性（elu 在负区间为 exp(x) - 1，正区间为 x）
+        # 加 1 确保所有值 ≥ 0 + epsilon
+        return torch.nn.functional.elu(x) + 1.0
+
+    def _compute_linear_attention_retrieval(
+        self,
+        query: torch.Tensor,
+        keys: torch.Tensor,
+        values: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        计算线性注意力检索
+
+        公式：
+        - KV = φ(K)^T · V
+        - Z = φ(K)^T · 1（归一化因子）
+        - context = φ(Q) · KV / (φ(Q) · Z + ε)
+
+        优势：
+        - 时间复杂度 O(N·d) 而非 O(N²·d)
+        - 适合长序列检索（如大量组块）
+        - 数值稳定性好（避免 softmax 的指数爆炸）
+
+        Args:
+            query: 查询向量 (query_dim) 或 (batch_size, query_dim)
+            keys: 键向量矩阵 (num_chunks, key_dim)
+            values: 值向量矩阵 (num_chunks, value_dim)
+
+        Returns:
+            context: 检索到的上下文向量 (value_dim) 或 (batch_size, value_dim)
+            attention_weights: 注意力权重（近似，用于调试）
+        """
+        # 特征映射
+        phi_Q = self._linear_attention_feature_map(query)  # (query_dim) 或 (batch_size, query_dim)
+        phi_K = self._linear_attention_feature_map(keys)   # (num_chunks, key_dim)
+
+        # 处理维度匹配问题
+        # 如果 query_dim != key_dim，需要投影
+        if phi_Q.shape[-1] != phi_K.shape[-1]:
+            # 使用简单的截断或填充
+            target_dim = min(phi_Q.shape[-1], phi_K.shape[-1])
+            phi_Q_proj = phi_Q[..., :target_dim]
+            phi_K_proj = phi_K[..., :target_dim]
+        else:
+            phi_Q_proj = phi_Q
+            phi_K_proj = phi_K
+
+        # 计算 KV = φ(K)^T · V
+        # phi_K_proj: (num_chunks, key_dim)
+        # values: (num_chunks, value_dim)
+        # KV: (key_dim, value_dim)
+        KV = phi_K_proj.T @ values  # (key_dim, value_dim)
+
+        # 计算 Z = φ(K)^T · 1（归一化因子）
+        # Z: (key_dim,)
+        Z = phi_K_proj.T @ torch.ones(phi_K_proj.shape[0], device=values.device)
+
+        # 计算 context = φ(Q) · KV / (φ(Q) · Z + ε)
+        # 添加 ε=1e-6 防止除零
+        epsilon = 1e-6
+
+        if phi_Q_proj.dim() == 1:
+            # 单个查询
+            # phi_Q_proj: (key_dim,)
+            # KV: (key_dim, value_dim)
+            numerator = phi_Q_proj @ KV  # (value_dim,)
+            denominator = phi_Q_proj @ Z + epsilon  # scalar
+            context = numerator / denominator  # (value_dim,)
+        else:
+            # 批量查询
+            # phi_Q_proj: (batch_size, key_dim)
+            # KV: (key_dim, value_dim)
+            numerator = phi_Q_proj @ KV  # (batch_size, value_dim)
+            denominator = (phi_Q_proj @ Z).unsqueeze(-1) + epsilon  # (batch_size, 1)
+            context = numerator / denominator  # (batch_size, value_dim)
+
+        # 计算近似注意力权重（用于调试，不影响实际检索）
+        # 注意：线性注意力不直接计算 O(N²) 的注意力权重
+        # 这里计算一个近似值用于可视化
+        if phi_Q_proj.dim() == 1:
+            # 单个查询：计算每个 key 的近似权重
+            approx_weights = (phi_Q_proj.unsqueeze(0) * phi_K_proj).sum(dim=-1)  # (num_chunks,)
+            approx_weights = approx_weights / (approx_weights.sum() + epsilon)
+        else:
+            # 批量查询
+            approx_weights = torch.matmul(phi_Q_proj, phi_K_proj.T)  # (batch_size, num_chunks)
+            approx_weights = approx_weights / (approx_weights.sum(dim=-1, keepdim=True) + epsilon)
+
+        return context, approx_weights
+
+    def _compute_full_attention_retrieval(
+        self,
+        query: torch.Tensor,
+        keys: torch.Tensor,
+        values: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        计算标准注意力检索（O(N²)复杂度）
+
+        公式：
+        - attention_weights = softmax(Q·K^T / sqrt(d))
+        - context = attention_weights · V
+
+        Args:
+            query: 查询向量 (query_dim) 或 (batch_size, query_dim)
+            keys: 键向量矩阵 (num_chunks, key_dim)
+            values: 值向量矩阵 (num_chunks, value_dim)
+
+        Returns:
+            context: 检索到的上下文向量
+            attention_weights: 精确注意力权重 (num_chunks,) 或 (batch_size, num_chunks)
+        """
+        # 处理维度匹配问题
+        target_dim = min(query.shape[-1], keys.shape[-1])
+        query_proj = query[..., :target_dim]
+        keys_proj = keys[..., :target_dim]
+
+        # 计算 attention scores
+        # query_proj: (query_dim) 或 (batch_size, query_dim)
+        # keys_proj: (num_chunks, key_dim)
+
+        if query_proj.dim() == 1:
+            # 单个查询
+            # scores: (num_chunks,)
+            scores = query_proj @ keys_proj.T  # (num_chunks,)
+            scale_factor = target_dim ** 0.5
+            scores = scores / scale_factor
+            attention_weights = torch.nn.functional.softmax(scores, dim=0)
+            context = attention_weights @ values  # (value_dim,)
+        else:
+            # 批量查询
+            # scores: (batch_size, num_chunks)
+            scores = query_proj @ keys_proj.T  # (batch_size, num_chunks)
+            scale_factor = target_dim ** 0.5
+            scores = scores / scale_factor
+            attention_weights = torch.nn.functional.softmax(scores, dim=-1)
+            context = attention_weights @ values  # (batch_size, value_dim)
+
+        return context, attention_weights
+
+    def retrieve_chunks_with_attention(
+        self,
+        query_state: torch.Tensor,
+        attention_mode: str = "linear",
+        top_k: Optional[int] = None,
+        include_dormant: bool = False,
+    ) -> Tuple[torch.Tensor, Dict[str, Any]]:
+        """
+        使用注意力机制检索相关组块
+
+        支持两种模式：
+        1. "linear": 线性注意力，O(N) 复杂度，适合大量组块
+        2. "full": 标准注意力，O(N²) 复杂度，精确但慢
+
+        Args:
+            query_state: 查询状态向量 (fast_dim) 或 (batch_size, fast_dim)
+            attention_mode: 注意力模式 ("linear" 或 "full")
+            top_k: 只使用 top_k 个组块（可选，用于减少计算量）
+            include_dormant: 是否包含休眠组块
+
+        Returns:
+            retrieved_context: 检索到的上下文向量 (chunk_dim) 或 (batch_size, chunk_dim)
+            metadata: 检索元数据（注意力权重、使用的组块等）
+        """
+        # 确定要检索的组块
+        if include_dormant:
+            chunks_to_use = list(self._chunks.values())
+        else:
+            chunks_to_use = self.get_active_chunks()
+
+        if not chunks_to_use:
+            # 没有组块可用
+            if query_state.dim() == 1:
+                return torch.zeros(self.chunk_dim, device=self.device), {"mode": attention_mode, "chunks_used": 0}
+            else:
+                batch_size = query_state.shape[0]
+                return torch.zeros(batch_size, self.chunk_dim, device=self.device), {"mode": attention_mode, "chunks_used": 0}
+
+        # 应用 top_k 限制
+        if top_k is not None and top_k < len(chunks_to_use):
+            # 按激活强度选择 top_k
+            chunks_with_activation = [
+                (chunk, self.activation_strength.get_activation(chunk.chunk_id))
+                for chunk in chunks_to_use
+            ]
+            chunks_with_activation.sort(key=lambda x: x[1], reverse=True)
+            chunks_to_use = [chunk for chunk, _ in chunks_with_activation[:top_k]]
+
+        # 构建 keys 和 values
+        # keys: 组块的注意力权重向量（作为键）
+        # values: 组块的内容向量
+
+        # 处理维度问题：
+        # - attention_weights 维度可能不统一（取决于组块的创建）
+        # - 需要统一到 chunk_dim
+        keys_list = []
+        values_list = []
+
+        for chunk in chunks_to_use:
+            # 确保 attention_weights 维度正确
+            attention_weights = chunk.attention_weights
+            if attention_weights.shape[0] != self.chunk_dim:
+                # 调整维度
+                if attention_weights.shape[0] > self.chunk_dim:
+                    adjusted_weights = attention_weights[:self.chunk_dim]
+                else:
+                    adjusted_weights = torch.cat([
+                        attention_weights,
+                        torch.zeros(self.chunk_dim - attention_weights.shape[0], device=self.device)
+                    ])
+                # 重新归一化
+                if adjusted_weights.sum() > 0:
+                    adjusted_weights = adjusted_weights / adjusted_weights.sum()
+            else:
+                adjusted_weights = attention_weights
+
+            keys_list.append(adjusted_weights)
+
+            # 确保 content 维度正确
+            content = chunk.content
+            if content.shape[0] != self.chunk_dim:
+                if content.shape[0] > self.chunk_dim:
+                    adjusted_content = content[:self.chunk_dim]
+                else:
+                    adjusted_content = torch.cat([
+                        content,
+                        torch.zeros(self.chunk_dim - content.shape[0], device=self.device)
+                    ])
+            else:
+                adjusted_content = content
+
+            values_list.append(adjusted_content)
+
+        # 构建 keys 和 values 张量
+        keys = torch.stack(keys_list, dim=0)  # (num_chunks, chunk_dim)
+        values = torch.stack(values_list, dim=0)  # (num_chunks, chunk_dim)
+
+        # 调用相应的注意力计算方法
+        if attention_mode == "linear":
+            context, attention_weights = self._compute_linear_attention_retrieval(
+                query_state, keys, values
+            )
+        elif attention_mode == "full":
+            context, attention_weights = self._compute_full_attention_retrieval(
+                query_state, keys, values
+            )
+        else:
+            logger.warning(f"Unknown attention_mode: {attention_mode}, using linear as default")
+            context, attention_weights = self._compute_linear_attention_retrieval(
+                query_state, keys, values
+            )
+
+        # 构建元数据
+        chunk_ids_used = [chunk.chunk_id for chunk in chunks_to_use]
+        metadata = {
+            "mode": attention_mode,
+            "chunks_used": len(chunks_to_use),
+            "chunk_ids": chunk_ids_used,
+            "attention_weights": attention_weights.detach().cpu().numpy() if attention_weights is not None else None,
+            "query_norm": torch.norm(query_state).item(),
+            "context_norm": torch.norm(context).item(),
+        }
+
+        return context, metadata
+
     def __repr__(self) -> str:
         """字符串表示"""
         stats = self.get_statistics()

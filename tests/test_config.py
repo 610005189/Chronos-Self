@@ -84,11 +84,11 @@ class TestCouplingStabilityConfig:
     def test_default_values(self):
         """Test default configuration values."""
         config = CouplingStabilityConfig()
-        assert config.coupling_adaptation_coeff == 1.0
-        assert config.elastic_restoration_coeff == 0.001
-        assert config.l2_perturbation_noise == 0.1
-        assert config.anti_quietus_weight == 0.01
-        assert config.inertia_weight == 0.001
+        assert config.coupling_adaptation_coeff == 0.5
+        assert config.elastic_restoration_coeff == 0.05
+        assert config.l2_perturbation_noise == 0.05
+        assert config.anti_quietus_weight == 0.1
+        assert config.inertia_weight == 0.05
     
     def test_positive_values(self):
         """Test that all stability parameters are positive."""

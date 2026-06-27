@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- 标准开源项目文件
+  - LICENSE（MIT License）
+  - CONTRIBUTING.md（贡献指南）
+  - docs/README.md（文档索引）
+
+### Changed
+
+- 动力学参数优化
+  - 降低混沌注入强度（chaos_injection_gain）从 0.01 → 0.005
+  - 增加弹性恢复系数（elastic_restoration_coeff）从 0.01 → 0.05
+  - 调整耦合适应系数（coupling_adaptation_coeff）从 1.0 → 0.5
+  - 增加惯性权重（inertia_weight）从 0.01 → 0.05
+
+- 项目结构优化
+  - 将原架构文档迁移至 docs/architecture_original.md
+  - 重写根目录 README.md，提升项目可访问性
+
+### Fixed
+
+- 修复 test_config.py 默认值测试（匹配新的配置参数）
+- 修复 minimal_config_test.py 键名错误（total_count → total_tests）
+- 修复 ExternalInput 和 SelfState 类中冗余类型检查
+- 修复 ChunkType.PROPRI0CEPTIVE 拼写错误（数字 0 → 字母 o）
+- 修复 FusionOutput.metadata 类型不匹配（Dict → Optional[Dict]）
+- 修复 coupling.py 类型注解（object → StateManager）
+- 修复 SSM forward NaN/Inf 检查缺失
+- 修复 neural_ode adaptive_integrate 无限循环风险（添加 max_retries）
+
+### Removed
+
+- 清理未使用的导入和死代码
+
 ## [0.1.0] - 2026-06-27
 
 ### Added

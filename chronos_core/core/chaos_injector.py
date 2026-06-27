@@ -192,8 +192,16 @@ class ChaosInjector:
         # 确保输入在正确设备上
         z = z.to(self.device)
 
+        # NaN/Inf check on input chaos signal
+        if torch.isnan(z).any() or torch.isinf(z).any():
+            z = torch.nan_to_num(z, nan=0.0, posinf=1e6, neginf=-1e6)
+            logger.warning("Chaos signal z contains NaN/Inf, values clamped")
+
         # 计算自适应增益（如果提供了快变量）
         if E_fast_core is not None:
+            # NaN/Inf check on E_fast_core
+            if torch.isnan(E_fast_core).any() or torch.isinf(E_fast_core).any():
+                E_fast_core = torch.nan_to_num(E_fast_core, nan=0.0, posinf=1e6, neginf=-1e6)
             self._update_adaptive_gain(E_fast_core)
 
         # 投影注入：B = g · W · z
@@ -201,6 +209,11 @@ class ChaosInjector:
         # z: (chaos_dim,)
         # B: (core_dim,)
         B = self.current_gain * torch.mv(self.W, z)
+
+        # NaN/Inf check on output
+        if torch.isnan(B).any() or torch.isinf(B).any():
+            B = torch.nan_to_num(B, nan=0.0, posinf=1e6, neginf=-1e6)
+            logger.warning("Injected signal B contains NaN/Inf, values clamped")
 
         # 记录统计
         self.total_injections += 1

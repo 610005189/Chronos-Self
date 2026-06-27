@@ -104,6 +104,11 @@ validation_tuned*
 configs/*.json
 !configs/default_config.json
 
+# Trae AI specs and workspace
+.trae/
+.trae-cn/
+
+
 # Temporary scripts (moved to scripts/)
 scripts/test_core.py
 scripts/test_logical_encoder.py
@@ -123,5 +128,11 @@ secrets/
 *.exe
 *.out
 *.app
+
+# Documentation
+docs/*.bak
+docs/*.tmp
+docs/*.temp
+docs/**/*.bak
 
 # Root level test files (moved to scripts/)

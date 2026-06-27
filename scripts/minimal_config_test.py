@@ -146,6 +146,7 @@ class MinimalConfigTest:
         config.meta_cognitive.l1_hidden_dim = min(self.fast_dim // 2, 128)
         config.meta_cognitive.l2_hidden_dim = min(self.core_dim, 32)
         config.meta_cognitive.l2_projection_dim = min(self.core_dim // 2, 16)
+        config.meta_cognitive.control_output_dim = min(self.fast_dim // 2, 128)
         
         # 更新编码器配置
         config.encoder.semantic_hidden_dim = min(self.fast_dim // 2, 128)
@@ -214,7 +215,7 @@ class MinimalConfigTest:
         summary = self._generate_summary(total_duration)
         
         logger.info("=" * 80)
-        logger.info(f"测试完成: 通过 {summary['passed_count']}/{summary['total_count']}")
+        logger.info(f"测试完成: 通过 {summary['passed_count']}/{summary['total_tests']}")
         logger.info(f"总耗时: {total_duration:.2f}ms")
         logger.info("=" * 80)
         

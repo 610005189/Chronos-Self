@@ -64,7 +64,7 @@ from chronos_core.core.reflection.reflection_system import (
     ReflectionSystem,
     ReflectionSystemConfig,
 )
-from chronos_core.memory.work_memory import WorkingMemory
+from chronos_core.memory.work_memory import WorkingMemory, ChunkType
 from chronos_core.training.training_system import TrainingSystem, TrainingSystemConfig
 from chronos_core.validation.validation_system import (
     ValidationSystem,
@@ -565,16 +565,30 @@ class ChronosSystem:
         
         # 2. 融合表征
         X_fused = None
-        if X_sem is not None and X_log is not None and self.fusion_module is not None:
-            # 将张量转换为序列格式
-            X_sem_seq = X_sem.unsqueeze(0).unsqueeze(0)  # (1, 1, sem_dim)
-            X_log_seq = X_log.unsqueeze(0).unsqueeze(0)  # (1, 1, log_dim)
-            
-            # 融合
-            fusion_output = self.fusion_module(X_sem_seq, X_log_seq, return_enriched=True)
-            X_fused = fusion_output.X_fused.squeeze(0).squeeze(0)  # (fusion_dim,)
-            
-            logger.debug(f"融合完成: X_fused_norm={torch.norm(X_fused).item():.4f}")
+        if X_sem is not None and X_log is not None:
+            if self.fusion_module is not None:
+                # 将张量转换为序列格式
+                X_sem_seq = X_sem.unsqueeze(0).unsqueeze(0)  # (1, 1, sem_dim)
+                X_log_seq = X_log.unsqueeze(0).unsqueeze(0)  # (1, 1, log_dim)
+                
+                # 融合
+                fusion_output = self.fusion_module(X_sem_seq, X_log_seq, return_enriched=True)
+                X_fused = fusion_output.X_fused.squeeze(0).squeeze(0)  # (fusion_dim,)
+                
+                logger.debug(f"融合完成: X_fused_norm={torch.norm(X_fused).item():.4f}")
+            else:
+                # 简化版：直接拼接语义和物理表征，并对齐到 fusion_dim
+                X_fused_raw = torch.cat([X_sem, X_log], dim=0)
+                target_fusion_dim = self.global_config.dim.fusion_dim
+                if X_fused_raw.shape[0] > target_fusion_dim:
+                    X_fused = X_fused_raw[:target_fusion_dim]
+                elif X_fused_raw.shape[0] < target_fusion_dim:
+                    padding = torch.zeros(target_fusion_dim - X_fused_raw.shape[0], device=self.device)
+                    X_fused = torch.cat([X_fused_raw, padding], dim=0)
+                else:
+                    X_fused = X_fused_raw
+                
+                logger.debug(f"简化融合完成: X_fused_norm={torch.norm(X_fused).item():.4f}")
         
         # 3. 创建外部输入对象
         if external_input is None:
@@ -582,7 +596,7 @@ class ChronosSystem:
                 X_sem=X_sem,
                 X_log=X_log,
                 importance=0.5,
-                emotion_value=response.confidence,
+                emotional_intensity=response.confidence,
                 metadata={
                     "text": text,
                     "intent_type": response.intent_type,
@@ -640,7 +654,7 @@ class ChronosSystem:
             # 创建新的组块
             chunk = self.working_memory.create_chunk(
                 source_state=self._current_self_state.E_fast,
-                chunk_type="semantic",
+                chunk_type=ChunkType.SEMANTIC,
                 initial_activation=response.confidence,
                 metadata={"text": text, "intent": response.intent_type}
             )

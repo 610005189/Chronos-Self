@@ -542,6 +542,8 @@ class NeuralODESolver:
         dt = initial_dt
 
         step_history = []
+        max_retries = 100  # 防止无限循环
+        retry_count = 0
 
         while t < t_end:
             # 调整步长以不超过结束时间
@@ -564,14 +566,28 @@ class NeuralODESolver:
                     # 误差小，增大步长
                     dt = min(dt * 1.5, self.config.max_step_size)
                     current_y = y_double_half  # 使用更精确的结果
+                    retry_count = 0  # 重置重试计数
                 elif error > self.config.rtol:
                     # 误差大，减小步长
-                    dt = max(dt / 2, self.config.min_step_size)
+                    new_dt = max(dt / 2, self.config.min_step_size)
+                    if new_dt == dt and dt == self.config.min_step_size:
+                        # 已达到最小步长，误差仍然过大
+                        retry_count += 1
+                        if retry_count >= max_retries:
+                            logger.warning(f"Max retries reached at t={t}, accepting current step despite high error")
+                            current_y = y_candidate
+                            t += dt
+                            step_history.append(dt)
+                            retry_count = 0
+                            continue
+                    else:
+                        dt = new_dt
                     # 重试当前步
                     continue
                 else:
                     # 误差适中，保持步长
                     current_y = y_candidate
+                    retry_count = 0  # 重置重试计数
 
                 t += dt
                 step_history.append(dt)

@@ -32,8 +32,8 @@ class ExternalInput:
     包含语义意图流和逻辑物理流的双通道表示
 
     Attributes:
-        X_sem: 语义意图流，维度 d_1，捕获高层目标和情感倾向
-        X_log: 逻辑物理流，维度 d_2，捕获结构化物理约束
+        X_sem: 语义意图流，捕获高层目标和情感倾向
+        X_log: 逻辑物理流，捕获结构化物理约束
         X_proprio: 本体感觉流（物理流的子部分），反映内部状态（姿态、能量、资源占用）
         X_world: 外部世界流（物理流的子部分），反映环境状态
         timestamp: 输入时间戳（秒）
@@ -42,12 +42,6 @@ class ExternalInput:
         importance: 输入重要性权重（0.0-1.0）
         emotional_intensity: 情感强度（0.0-1.0），用于关键帧标记
     """
-
-    # 语义流和物理流的维度（可配置）
-    semantic_dim: int = field(default=256, init=False, repr=False)
-    physical_dim: int = field(default=512, init=False, repr=False)
-    proprio_dim: int = field(default=256, init=False, repr=False)  # 本体感觉维度
-    world_dim: int = field(default=256, init=False, repr=False)  # 外部世界维度
 
     # 核心输入张量
     X_sem: torch.Tensor = field(default=None)
@@ -63,62 +57,97 @@ class ExternalInput:
     # 重要性和情感强度
     importance: float = field(default=1.0)
     emotional_intensity: float = field(default=0.0)
+    emotion_value: Optional[float] = field(default=None, repr=False)
+
+    # 默认维度（用于向后兼容，当没有传入张量时使用）
+    _default_semantic_dim: int = field(default=256, init=False, repr=False)
+    _default_physical_dim: int = field(default=512, init=False, repr=False)
+    _default_proprio_dim: int = field(default=256, init=False, repr=False)
+    _default_world_dim: int = field(default=256, init=False, repr=False)
 
     def __post_init__(self):
         """初始化后处理，确保张量维度正确"""
+        # 向后兼容：如果提供了 emotion_value，则使用它设置 emotional_intensity
+        if self.emotion_value is not None:
+            self.emotional_intensity = self.emotion_value
+        
         # 初始化语义流
         if self.X_sem is None:
-            self.X_sem = torch.zeros(self.semantic_dim)
+            self.X_sem = torch.zeros(self._default_semantic_dim)
             logger.debug(f"Initialized X_sem with zeros: shape {self.X_sem.shape}")
-        elif isinstance(self.X_sem, torch.Tensor):
-            if self.X_sem.shape[0] != self.semantic_dim:
-                raise ValueError(
-                    f"X_sem dimension mismatch: expected {self.semantic_dim}, "
-                    f"got {self.X_sem.shape[0]}"
-                )
-        else:
+        elif not isinstance(self.X_sem, torch.Tensor):
             self.X_sem = torch.tensor(self.X_sem, dtype=torch.float32)
+        else:
+            if self.X_sem.dtype != torch.float32:
+                self.X_sem = self.X_sem.float()
+            if self.X_sem.dim() != 1:
+                raise ValueError(
+                    f"X_sem must be a 1D tensor, got {self.X_sem.dim()}D with shape {self.X_sem.shape}"
+                )
+            if torch.isnan(self.X_sem).any() or torch.isinf(self.X_sem).any():
+                logger.warning("X_sem contains NaN or Inf values, clamping")
+                self.X_sem = torch.nan_to_num(self.X_sem, nan=0.0, posinf=1e6, neginf=-1e6)
 
         # 初始化逻辑物理流
         if self.X_log is None:
-            self.X_log = torch.zeros(self.physical_dim)
+            self.X_log = torch.zeros(self._default_physical_dim)
             logger.debug(f"Initialized X_log with zeros: shape {self.X_log.shape}")
-        elif isinstance(self.X_log, torch.Tensor):
-            if self.X_log.shape[0] != self.physical_dim:
-                raise ValueError(
-                    f"X_log dimension mismatch: expected {self.physical_dim}, "
-                    f"got {self.X_log.shape[0]}"
-                )
-        else:
+        elif not isinstance(self.X_log, torch.Tensor):
             self.X_log = torch.tensor(self.X_log, dtype=torch.float32)
+        else:
+            if self.X_log.dtype != torch.float32:
+                self.X_log = self.X_log.float()
+            if self.X_log.dim() != 1:
+                raise ValueError(
+                    f"X_log must be a 1D tensor, got {self.X_log.dim()}D with shape {self.X_log.shape}"
+                )
+            if torch.isnan(self.X_log).any() or torch.isinf(self.X_log).any():
+                logger.warning("X_log contains NaN or Inf values, clamping")
+                self.X_log = torch.nan_to_num(self.X_log, nan=0.0, posinf=1e6, neginf=-1e6)
 
         # 初始化本体感觉流
         if self.X_proprio is None:
-            self.X_proprio = torch.zeros(self.proprio_dim)
+            self.X_proprio = torch.zeros(self._default_proprio_dim)
             logger.debug(
                 f"Initialized X_proprio with zeros: shape {self.X_proprio.shape}"
             )
-        elif isinstance(self.X_proprio, torch.Tensor):
-            if self.X_proprio.shape[0] != self.proprio_dim:
-                raise ValueError(
-                    f"X_proprio dimension mismatch: expected {self.proprio_dim}, "
-                    f"got {self.X_proprio.shape[0]}"
-                )
-        else:
+        elif not isinstance(self.X_proprio, torch.Tensor):
             self.X_proprio = torch.tensor(self.X_proprio, dtype=torch.float32)
+        else:
+            if not isinstance(self.X_proprio, torch.Tensor):
+                raise TypeError(
+                    f"X_proprio must be a torch.Tensor, got {type(self.X_proprio).__name__}"
+                )
+            if self.X_proprio.dtype != torch.float32:
+                self.X_proprio = self.X_proprio.float()
+            if self.X_proprio.dim() != 1:
+                raise ValueError(
+                    f"X_proprio must be a 1D tensor, got {self.X_proprio.dim()}D with shape {self.X_proprio.shape}"
+                )
+            if torch.isnan(self.X_proprio).any() or torch.isinf(self.X_proprio).any():
+                logger.warning("X_proprio contains NaN or Inf values, clamping")
+                self.X_proprio = torch.nan_to_num(self.X_proprio, nan=0.0, posinf=1e6, neginf=-1e6)
 
         # 初始化外部世界流
         if self.X_world is None:
-            self.X_world = torch.zeros(self.world_dim)
+            self.X_world = torch.zeros(self._default_world_dim)
             logger.debug(f"Initialized X_world with zeros: shape {self.X_world.shape}")
-        elif isinstance(self.X_world, torch.Tensor):
-            if self.X_world.shape[0] != self.world_dim:
-                raise ValueError(
-                    f"X_world dimension mismatch: expected {self.world_dim}, "
-                    f"got {self.X_world.shape[0]}"
-                )
-        else:
+        elif not isinstance(self.X_world, torch.Tensor):
             self.X_world = torch.tensor(self.X_world, dtype=torch.float32)
+        else:
+            if not isinstance(self.X_world, torch.Tensor):
+                raise TypeError(
+                    f"X_world must be a torch.Tensor, got {type(self.X_world).__name__}"
+                )
+            if self.X_world.dtype != torch.float32:
+                self.X_world = self.X_world.float()
+            if self.X_world.dim() != 1:
+                raise ValueError(
+                    f"X_world must be a 1D tensor, got {self.X_world.dim()}D with shape {self.X_world.shape}"
+                )
+            if torch.isnan(self.X_world).any() or torch.isinf(self.X_world).any():
+                logger.warning("X_world contains NaN or Inf values, clamping")
+                self.X_world = torch.nan_to_num(self.X_world, nan=0.0, posinf=1e6, neginf=-1e6)
 
         # 确保张量是连续的
         self.X_sem = self.X_sem.contiguous()
@@ -213,29 +242,25 @@ class ExternalInput:
         """
         errors = []
 
-        # 检查张量维度
-        if self.X_sem.shape[0] != self.semantic_dim:
+        # 检查张量是否为一维
+        if self.X_sem.dim() != 1:
             errors.append(
-                f"X_sem dimension mismatch: expected {self.semantic_dim}, "
-                f"got {self.X_sem.shape[0]}"
+                f"X_sem should be 1D, got {self.X_sem.dim()}D"
             )
 
-        if self.X_log.shape[0] != self.physical_dim:
+        if self.X_log.dim() != 1:
             errors.append(
-                f"X_log dimension mismatch: expected {self.physical_dim}, "
-                f"got {self.X_log.shape[0]}"
+                f"X_log should be 1D, got {self.X_log.dim()}D"
             )
 
-        if self.X_proprio.shape[0] != self.proprio_dim:
+        if self.X_proprio.dim() != 1:
             errors.append(
-                f"X_proprio dimension mismatch: expected {self.proprio_dim}, "
-                f"got {self.X_proprio.shape[0]}"
+                f"X_proprio should be 1D, got {self.X_proprio.dim()}D"
             )
 
-        if self.X_world.shape[0] != self.world_dim:
+        if self.X_world.dim() != 1:
             errors.append(
-                f"X_world dimension mismatch: expected {self.world_dim}, "
-                f"got {self.X_world.shape[0]}"
+                f"X_world should be 1D, got {self.X_world.dim()}D"
             )
 
         # 检查数值稳定性（NaN 和 Inf）

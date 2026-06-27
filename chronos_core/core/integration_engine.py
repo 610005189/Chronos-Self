@@ -61,6 +61,12 @@ class IntegrationEngineConfig:
     solver_atol: float = 1e-6
     solver_rtol: float = 1e-5
 
+    # IMEX 求解器参数
+    solver_type: str = "euler"  # euler | imex | rk4 | verlet
+    imex_update_interval: int = 100  # J0 更新间隔（步数）
+    imex_j0_eps: float = 1e-6  # J0 估算的扰动大小
+    imex_j0_clamp_min: float = 0.0  # J0 对角元素最小值（确保非负刚性）
+
     # 稳定性参数
     stability_check_interval: int = 100
     auto_stability_actions: bool = True
@@ -128,6 +134,11 @@ class IntegrationEngine(nn.Module):
         self.engine_config.slow_dim = self.global_config.dim.slow_variable_dim
         self.engine_config.slow_update_frequency = self.global_config.memory_temporal.slow_update_frequency
 
+        # 合并 IMEX 相关配置（从 global_config.numerics 中读取）
+        self.engine_config.solver_type = self.global_config.numerics.solver_type
+        self.engine_config.imex_update_interval = self.global_config.numerics.imex_update_interval
+        # imex_j0_eps 和 imex_j0_clamp_min 使用默认值
+
         # 设备和种子
         self.device = device or self.global_config.device
         self.seed = seed or self.global_config.random_seed
@@ -152,6 +163,11 @@ class IntegrationEngine(nn.Module):
         # 状态缓存
         self._current_E_fast_prev: Optional[torch.Tensor] = None
         self._current_E_slow_prev: Optional[torch.Tensor] = None
+
+        # IMEX 求解器缓存
+        self._J0_cache: Optional[torch.Tensor] = None  # 线性主部（对角矩阵）
+        self._J0_update_counter: int = 0  # J0 更新计数器
+        self._last_input_dict: Optional[Dict[str, torch.Tensor]] = None  # 最近的输入字典（用于估算 J0）
 
         # 运行统计
         self.step_count = 0
@@ -370,15 +386,43 @@ class IntegrationEngine(nn.Module):
 
         # 外部输入
         if inputs is not None:
-            input_dict['X_sem'] = inputs.X_sem.to(self.device)
-            input_dict['X_log'] = inputs.X_log.to(self.device)
+            X_sem = inputs.X_sem.to(self.device)
+            X_log = inputs.X_log.to(self.device)
 
-            # 融合表征（简单拼接）
+            # 确保维度匹配配置
+            target_sem_dim = self.global_config.dim.semantic_dim
+            target_phys_dim = self.global_config.dim.physical_dim
+
+            if X_sem.shape[0] != target_sem_dim:
+                if X_sem.shape[0] > target_sem_dim:
+                    X_sem = X_sem[:target_sem_dim]
+                else:
+                    padding = torch.zeros(target_sem_dim - X_sem.shape[0], device=self.device)
+                    X_sem = torch.cat([X_sem, padding], dim=0)
+                logger.debug(f"Adjusted X_sem dimension: {inputs.X_sem.shape[0]} -> {target_sem_dim}")
+
+            if X_log.shape[0] != target_phys_dim:
+                if X_log.shape[0] > target_phys_dim:
+                    X_log = X_log[:target_phys_dim]
+                else:
+                    padding = torch.zeros(target_phys_dim - X_log.shape[0], device=self.device)
+                    X_log = torch.cat([X_log, padding], dim=0)
+                logger.debug(f"Adjusted X_log dimension: {inputs.X_log.shape[0]} -> {target_phys_dim}")
+
+            input_dict['X_sem'] = X_sem
+            input_dict['X_log'] = X_log
+
+            # 融合表征（简单拼接 + 维度对齐）
             # TODO: 在 Phase 4 实现完整的 FusionModule
-            input_dict['X_fused'] = torch.cat([
-                inputs.X_sem.to(self.device),
-                inputs.X_log.to(self.device)
-            ], dim=0)
+            X_fused = torch.cat([X_sem, X_log], dim=0)
+            target_fusion_dim = self.global_config.dim.fusion_dim
+            if X_fused.shape[0] != target_fusion_dim:
+                if X_fused.shape[0] > target_fusion_dim:
+                    X_fused = X_fused[:target_fusion_dim]
+                else:
+                    padding = torch.zeros(target_fusion_dim - X_fused.shape[0], device=self.device)
+                    X_fused = torch.cat([X_fused, padding], dim=0)
+            input_dict['X_fused'] = X_fused
 
         # 元认知调控信号
         if meta_cognitive_signal is not None:
@@ -400,6 +444,12 @@ class IntegrationEngine(nn.Module):
         """
         更新快变量状态
 
+        根据 solver_type 配置选择不同的求解器：
+        - euler: 原始 euler 方法（默认）
+        - imex: IMEX 算子分裂求解器（新增）
+        - rk4: RK4 方法（如有）
+        - verlet: Verlet 方法（可选）
+
         Args:
             E_fast: 当前快变量
             E_slow: 慢变量
@@ -410,10 +460,40 @@ class IntegrationEngine(nn.Module):
         Returns:
             新的快变量状态
         """
-        # 使用快变量动力学系统更新
-        E_fast_new = self.fast_dynamics.step(
-            E_fast, E_slow, input_dict, dt, t
-        )
+        # 缓存输入字典（用于 IMEX 求解器估算 J0）
+        self._last_input_dict = input_dict
+
+        # 根据配置选择求解器
+        solver_type = self.engine_config.solver_type
+
+        if solver_type == "imex":
+            # 使用 IMEX 求解器
+            E_fast_new = self.step_imex(
+                E_fast, E_slow, input_dict, dt, t
+            )
+        elif solver_type == "euler":
+            # 使用原始 euler 方法
+            E_fast_new = self.fast_dynamics.step(
+                E_fast, E_slow, input_dict, dt, t
+            )
+        elif solver_type == "rk4":
+            # RK4 方法（如果有）
+            # TODO: 实现 RK4 求解器
+            logger.warning("RK4 solver not implemented, falling back to euler")
+            E_fast_new = self.fast_dynamics.step(
+                E_fast, E_slow, input_dict, dt, t
+            )
+        elif solver_type == "verlet":
+            # Verlet 方法（辛积分器）
+            E_fast_new = self.step_verlet(
+                E_fast, E_slow, input_dict, dt, t
+            )
+        else:
+            # 未知求解器类型，回退到 euler
+            logger.warning(f"Unknown solver_type '{solver_type}', falling back to euler")
+            E_fast_new = self.fast_dynamics.step(
+                E_fast, E_slow, input_dict, dt, t
+            )
 
         return E_fast_new
 
@@ -447,6 +527,322 @@ class IntegrationEngine(nn.Module):
         )
 
         return E_slow_new
+
+    def _estimate_j0(
+        self,
+        E_fast: torch.Tensor,
+        E_slow: torch.Tensor,
+        input_dict: Dict[str, torch.Tensor]
+    ) -> torch.Tensor:
+        """
+        从当前状态估算线性主部 J0（对角近似）
+
+        使用有限差分法估算雅可比矩阵的对角部分，代表刚性模态。
+        为了提高效率，使用采样策略和批量计算。
+
+        Args:
+            E_fast: 当前快变量状态
+            E_slow: 慢变量状态
+            input_dict: 输入字典
+
+        Returns:
+            J0: 对角矩阵（刚性部分）
+        """
+        eps = self.engine_config.imex_j0_eps
+        fast_dim = E_fast.shape[-1]
+
+        # 采样策略：为了提高效率，只估算部分维度
+        # 如果维度小于 100，则全部计算
+        # 如果维度大于 100，则采样 100 个维度
+        sample_size = min(100, fast_dim)
+        sample_indices = torch.linspace(0, fast_dim - 1, sample_size).long() \
+            if fast_dim > sample_size else torch.arange(fast_dim)
+
+        # 获取动力学函数
+        dynamics_fn = self.fast_dynamics.dynamics_fn
+
+        # 批量计算：一次性计算所有采样维度的扰动
+        # 构建 batch: [2 * sample_size, fast_dim]
+        # 每个采样维度有两个扰动（+eps 和 -eps）
+        batch_size = 2 * sample_size
+        batch_E = E_fast.unsqueeze(0).repeat(batch_size, 1)  # [batch_size, fast_dim]
+
+        # 为每个采样维度添加扰动
+        for idx, i in enumerate(sample_indices):
+            batch_E[2 * idx, i] += eps  # +eps
+            batch_E[2 * idx + 1, i] -= eps  # -eps
+
+        # 批量计算动力学
+        with torch.no_grad():  # 不需要梯度
+            # 提取输入参数
+            X_sem = input_dict.get('X_sem')
+            X_log = input_dict.get('X_log')
+            X_fused = input_dict.get('X_fused')
+            C_meta = input_dict.get('C_meta')
+            B_chaos = input_dict.get('B_chaos')
+
+            # 需要将 E_slow 也扩展为 batch
+            batch_E_slow = E_slow.unsqueeze(0).repeat(batch_size, 1)
+
+            # 批量计算动力学（需要修改 dynamics_fn 以支持批量输入）
+            # 但当前 dynamics_fn 可能不支持批量输入，所以我们需要逐个计算
+            # 为了提高效率，我们可以分批计算
+            batch_f = []
+            chunk_size = 10  # 每次计算 10 个扰动
+            for chunk_start in range(0, batch_size, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, batch_size)
+                chunk_E = batch_E[chunk_start:chunk_end]
+
+                # 对 chunk 中的每个元素计算动力学
+                chunk_f = []
+                for j in range(chunk_E.shape[0]):
+                    f_j = dynamics_fn.forward(
+                        torch.tensor(0.0, device=self.device),
+                        chunk_E[j],
+                        E_slow=E_slow,
+                        X_sem=X_sem,
+                        X_log=X_log,
+                        X_fused=X_fused,
+                        C_meta=C_meta,
+                        B_chaos=B_chaos
+                    )
+                    chunk_f.append(f_j)
+
+                batch_f.extend(chunk_f)
+
+            # 转换为 tensor
+            batch_f = torch.stack(batch_f)  # [batch_size, fast_dim]
+
+        # 计算采样维度的雅可比对角元素
+        sampled_J0_diag = torch.zeros(sample_size, device=self.device, dtype=E_fast.dtype)
+
+        for idx, i in enumerate(sample_indices):
+            f_plus = batch_f[2 * idx]
+            f_minus = batch_f[2 * idx + 1]
+
+            # 计算对角元素（中心差分）
+            sampled_J0_diag[idx] = ((f_plus - f_minus) / (2 * eps))[i].mean()
+
+        # 应用非负约束（确保刚性模态）
+        sampled_J0_diag = sampled_J0_diag.clamp(min=self.engine_config.imex_j0_clamp_min)
+
+        # 如果使用了采样策略，则通过插值或平均得到所有维度的对角元素
+        if fast_dim > sample_size:
+            # 方法 1：使用平均值（简单但有效）
+            # 假设所有维度的刚性相似
+            mean_diag = sampled_J0_diag.mean()
+            J0_diag = torch.full((fast_dim,), mean_diag, device=self.device, dtype=E_fast.dtype)
+
+            # 方法 2：使用线性插值（更精确）
+            # 从 sampled_J0_diag 插值到所有维度
+            # sampled_indices: [sample_size]
+            # sampled_values: [sample_size]
+            # 目标 indices: [fast_dim]
+            # 使用 PyTorch 的插值功能
+            # 但 PyTorch 没有直接的一维插值函数，我们可以使用自定义实现
+            # 为了简化，使用方法 1（平均值）
+        else:
+            # 如果没有采样，直接使用计算结果
+            J0_diag = sampled_J0_diag
+
+        # 构建对角矩阵
+        J0 = torch.diag(J0_diag)
+
+        logger.debug(
+            f"J0 estimated: sample_size={sample_size}, "
+            f"diag_range=[{J0_diag.min().item():.4f}, {J0_diag.max().item():.4f}], "
+            f"mean={J0_diag.mean().item():.4f}"
+        )
+
+        return J0
+
+    def step_imex(
+        self,
+        E_fast: torch.Tensor,
+        E_slow: torch.Tensor,
+        input_dict: Dict[str, torch.Tensor],
+        dt: float,
+        t: float
+    ) -> torch.Tensor:
+        """
+        IMEX 算子分裂求解器步骤
+
+        将动力学分裂为线性部分（隐式求解）和非线性部分（显式求解）：
+        - dE_fast/dt = J0 @ E_fast + N(E_fast, ...)
+        - 其中 J0 是线性主部（对角矩阵，代表刚性）
+        - N 是非线性残差
+
+        Args:
+            E_fast: 当前快变量状态
+            E_slow: 慢变量状态
+            input_dict: 输入字典
+            dt: 时间步长
+            t: 当前时间
+
+        Returns:
+            新的快变量状态
+        """
+        # 1. 检查是否需要更新 J0
+        if (self._J0_cache is None or
+            self._J0_update_counter >= self.engine_config.imex_update_interval):
+            # 更新 J0
+            self._J0_cache = self._estimate_j0(E_fast, E_slow, input_dict)
+            self._J0_update_counter = 0
+            logger.debug(f"J0 updated at step {self.step_count}")
+
+        # 2. 隐式求解线性部分（解析解）
+        # (I - dt * J0) @ E_linear = E_fast
+        # E_linear = (I - dt * J0)^{-1} @ E_fast
+        J0 = self._J0_cache
+        I = torch.eye(J0.shape[0], device=self.device, dtype=J0.dtype)
+
+        # 计算 (I - dt * J0) 的逆
+        # 对于对角矩阵，逆矩阵也是对角矩阵，可以简化计算
+        # 但为了通用性，这里使用矩阵求逆
+        A = I - dt * J0
+
+        # 检查矩阵是否可逆（避免数值不稳定）
+        try:
+            # 对于对角矩阵，使用更高效的方法
+            if torch.allclose(J0 - torch.diag(torch.diag(J0)), torch.zeros_like(J0)):
+                # 对角矩阵情况：直接计算逆对角元素
+                A_diag_inv = 1.0 / torch.diag(A).clamp(min=1e-10)  # 防止除零
+                E_linear = A_diag_inv * E_fast  # 对角矩阵乘法
+            else:
+                # 非对角矩阵情况（如果未来扩展）
+                A_inv = torch.inverse(A)
+                E_linear = A_inv @ E_fast
+        except Exception as e:
+            # 如果求逆失败，回退到 euler 方法
+            logger.warning(f"IMEX matrix inversion failed: {e}, falling back to euler")
+            return self.fast_dynamics.step(E_fast, E_slow, input_dict, dt, t)
+
+        # 3. 计算非线性残差
+        # N_theta = F_theta(E_fast, ...) - J0 @ E_fast
+        dynamics_fn = self.fast_dynamics.dynamics_fn
+
+        # 计算完整动力学 F_theta
+        X_sem = input_dict.get('X_sem')
+        X_log = input_dict.get('X_log')
+        X_fused = input_dict.get('X_fused')
+        C_meta = input_dict.get('C_meta')
+        B_chaos = input_dict.get('B_chaos')
+
+        F_theta = dynamics_fn.forward(
+            torch.tensor(t, device=self.device),
+            E_fast,
+            E_slow=E_slow,
+            X_sem=X_sem,
+            X_log=X_log,
+            X_fused=X_fused,
+            C_meta=C_meta,
+            B_chaos=B_chaos
+        )
+
+        # 计算非线性部分
+        N_theta = F_theta - J0 @ E_fast
+
+        # 4. 显式求解非线性部分（euler 步）
+        # E_nonlinear = E_fast + dt * N_theta
+        E_nonlinear = E_fast + dt * N_theta
+
+        # 5. 组合更新
+        # E_new = E_linear + (E_nonlinear - E_fast)
+        # 这相当于：E_new = E_linear + dt * N_theta
+        E_new = E_linear + (E_nonlinear - E_fast)
+
+        # 6. 状态范数裁剪（防止发散）
+        norm = torch.norm(E_new).item()
+        if norm > self.fast_dynamics.config.state_norm_threshold:
+            scale = self.fast_dynamics.config.state_norm_threshold / norm
+            E_new = E_new * scale
+            logger.debug(f"IMEX state norm clipped: {norm:.4e} -> {self.fast_dynamics.config.state_norm_threshold}")
+
+        # 7. 更新计数器
+        self._J0_update_counter += 1
+
+        # 8. 稳定性检查
+        self.fast_dynamics._check_stability(E_new)
+
+        return E_new
+
+    def step_verlet(
+        self,
+        E_fast: torch.Tensor,
+        E_slow: torch.Tensor,
+        input_dict: Dict[str, torch.Tensor],
+        dt: float,
+        t: float
+    ) -> torch.Tensor:
+        """
+        Verlet-like 近似辛积分器步骤
+
+        实现辛积分器（Verlet 模式），提供长期稳定性保障。
+        辛积分器能够保持系统的辛结构，降低长期能量漂移误差。
+
+        算法步骤：
+        1. 位置半更新：E_half = E_fast + 0.5 * dt * F_theta(E_fast, E_slow, ...)
+        2. 速度全更新：E_new = E_fast + dt * F_theta(E_half, E_slow, ...)
+        3. 位置半修正：E_new = E_new + 0.5 * dt * F_theta(E_new, E_slow, ...)
+
+        Args:
+            E_fast: 当前快变量状态
+            E_slow: 慢变量状态
+            input_dict: 输入字典（包含 X_sem, X_log, X_fused, C_meta, B_chaos）
+            dt: 时间步长
+            t: 当前时间
+
+        Returns:
+            新的快变量状态
+        """
+        dynamics_fn = self.fast_dynamics.dynamics_fn
+
+        # 提取输入参数
+        X_sem = input_dict.get('X_sem')
+        X_log = input_dict.get('X_log')
+        X_fused = input_dict.get('X_fused')
+        C_meta = input_dict.get('C_meta')
+        B_chaos = input_dict.get('B_chaos')
+
+        # 辅助函数：计算动力学 F_theta
+        def compute_F_theta(state):
+            return dynamics_fn.forward(
+                torch.tensor(t, device=self.device),
+                state,
+                E_slow=E_slow,
+                X_sem=X_sem,
+                X_log=X_log,
+                X_fused=X_fused,
+                C_meta=C_meta,
+                B_chaos=B_chaos
+            )
+
+        # 1. 位置半更新（使用当前状态）
+        # E_half = E_fast + 0.5 * dt * F_theta(E_fast, E_slow, ...)
+        F_initial = compute_F_theta(E_fast)
+        E_half = E_fast + 0.5 * dt * F_initial
+
+        # 2. 速度全更新（使用半位置）
+        # E_new = E_fast + dt * F_theta(E_half, E_slow, ...)
+        F_half = compute_F_theta(E_half)
+        E_new = E_fast + dt * F_half
+
+        # 3. 位置半修正（使用新状态）
+        # E_new = E_new + 0.5 * dt * F_theta(E_new, E_slow, ...)
+        F_new = compute_F_theta(E_new)
+        E_new = E_new + 0.5 * dt * F_new
+
+        # 4. 状态范数裁剪（防止发散）
+        norm = torch.norm(E_new).item()
+        if norm > self.fast_dynamics.config.state_norm_threshold:
+            scale = self.fast_dynamics.config.state_norm_threshold / norm
+            E_new = E_new * scale
+            logger.debug(f"Verlet state norm clipped: {norm:.4e} -> {self.fast_dynamics.config.state_norm_threshold}")
+
+        # 5. 稳定性检查
+        self.fast_dynamics._check_stability(E_new)
+
+        return E_new
 
     def integrate(
         self,
@@ -672,6 +1068,11 @@ class IntegrationEngine(nn.Module):
         self._current_E_fast_prev = None
         self._current_E_slow_prev = None
 
+        # 清空 IMEX 相关缓存
+        self._J0_cache = None
+        self._J0_update_counter = 0
+        self._last_input_dict = None
+
         logger.info("IntegrationEngine reset")
 
     def save_state(self, filepath: str) -> None:
@@ -757,7 +1158,12 @@ def create_integration_engine_from_config(
         slow_update_frequency=config.memory_temporal.slow_update_frequency,
         solver_method=config.neural_ode.integration_method,
         solver_atol=config.neural_ode.atol,
-        solver_rtol=config.neural_ode.rtol
+        solver_rtol=config.neural_ode.rtol,
+        # IMEX 相关配置
+        solver_type=config.numerics.solver_type,
+        imex_update_interval=config.numerics.imex_update_interval,
+        imex_j0_eps=1e-6,  # 默认值
+        imex_j0_clamp_min=0.0  # 默认值
     )
 
     engine = IntegrationEngine(

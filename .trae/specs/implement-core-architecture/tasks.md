@@ -32,7 +32,7 @@
   - [x] SubTask 5.1: 实现语义→物理交叉注意力（SemanticToPhysicalCrossAttention）
   - [x] SubTask 5.2: 实现物理→语义交叉注意力（PhysicalToSemanticCrossAttention）
   - [x] SubTask 5.3: 实现融合模块（FusionModule），拼接双通道 enriched 表征
-  - [ ] SubTask 5.4: 测试融合机制的正确性
+  - [x] SubTask 5.4: 测试融合机制的正确性
 
 ## Phase 3: 多时间尺度连续积分引擎（核心）
 

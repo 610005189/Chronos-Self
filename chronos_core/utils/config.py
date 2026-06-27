@@ -76,10 +76,10 @@ class CouplingStabilityConfig:
     """Configuration for coupling and stability parameters."""
     
     # Coupling adaptation coefficient (β) - controls coupling strength
-    coupling_adaptation_coeff: float = 1.0
+    coupling_adaptation_coeff: float = 0.5
     
     # Elastic restoration coefficient (γ) - baseline return strength
-    elastic_restoration_coeff: float = 0.01
+    elastic_restoration_coeff: float = 0.05
     
     # L2 perturbation noise (σ_C) - for regularization
     l2_perturbation_noise: float = 0.05
@@ -88,7 +88,7 @@ class CouplingStabilityConfig:
     anti_quietus_weight: float = 0.1
     
     # Inertia weight (μ) - maintains state continuity
-    inertia_weight: float = 0.01
+    inertia_weight: float = 0.05
     
     # Coupling strength upper bound
     coupling_upper_bound: float = 10.0
@@ -124,7 +124,7 @@ class ChaosInjectionConfig:
     attractor_switch_interval: int = 5000
     
     # Chaos injection gain (controls influence on dynamics)
-    chaos_injection_gain: float = 0.01
+    chaos_injection_gain: float = 0.005
     
     # Transition smoothing factor for attractor switching
     attractor_transition_smoothing: float = 0.95
@@ -188,21 +188,47 @@ class NeuralODEConfig:
 @dataclass
 class EncoderConfig:
     """Configuration for dual-channel encoders."""
-    
+
     # Semantic encoder configuration
     semantic_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
     semantic_hidden_dim: int = 512
     semantic_num_layers: int = 4
     semantic_num_heads: int = 8
-    
+
     # Physical encoder configuration
     physical_hidden_dim: int = 512
     physical_num_layers: int = 4
     physical_state_dim: int = 128  # SSM state dimension
-    
+
     # Cross-attention configuration
     cross_attention_heads: int = 8
     cross_attention_dropout: float = 0.1
+
+
+@dataclass
+class NumericsConfig:
+    """Configuration for numerical solvers and computation optimization."""
+
+    # ODE 求解器类型: euler | rk4 | imex | verlet
+    solver_type: str = "imex"
+
+    # 是否启用谱范数约束
+    spectral_norm_enabled: bool = True
+
+    # 注意力模式: linear | full
+    attention_mode: str = "linear"
+
+    # 是否启用梯度检查点以节省显存
+    checkpointing_enabled: bool = False
+
+    # 是否启用傅里叶变换加速
+    fourier_enabled: bool = False
+
+    # IMEX 求解器更新间隔（步数）
+    imex_update_interval: int = 100
+
+    # IMEX 时间步安全因子
+    imex_dt_safety_factor: float = 0.9
 
 
 @dataclass
@@ -218,6 +244,7 @@ class MetaCognitiveConfig:
     # L2 meta-cognitive layer
     l2_hidden_dim: int = 128
     l2_projection_dim: int = 64  # Johnson-Lindenstrauss projection
+    control_output_dim: int = 128  # L2 control signal output dimension
     
     # L2 perturbation noise for training
     l2_perturbation_noise: float = 0.05
@@ -319,6 +346,7 @@ class ChronosConfig:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     neural_ode: NeuralODEConfig = field(default_factory=NeuralODEConfig)
     encoder: EncoderConfig = field(default_factory=EncoderConfig)
+    numerics: NumericsConfig = field(default_factory=NumericsConfig)
     meta_cognitive: MetaCognitiveConfig = field(default_factory=MetaCognitiveConfig)
     validation: ValidationConfig = field(default_factory=ValidationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)

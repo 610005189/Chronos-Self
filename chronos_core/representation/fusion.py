@@ -54,7 +54,7 @@ class FusionOutput:
     X_log_enriched: torch.Tensor
     sem_to_phys_attention: Optional[torch.Tensor] = None
     phys_to_sem_attention: Optional[torch.Tensor] = None
-    metadata: Dict[str, Any] = None
+    metadata: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for serialization."""

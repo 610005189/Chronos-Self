@@ -1137,6 +1137,7 @@ class MetaCognitiveLayer(nn.Module):
         
         if meta_config:
             self.config.projection_dim = meta_config.l2_projection_dim
+            self.config.control_output_dim = meta_config.control_output_dim
         
         self.device = device or self.config.device
         
