@@ -305,7 +305,7 @@ class MetaCognitive(nn.Module):
             emergence_config = EmergenceConfig(
                 enable_emergence=True,
                 calculation_window=getattr(self.meta_config, 'emergence_calculation_window', 200),
-                calculation_interval=self.config.emergence_calculation_interval,
+                calculation_interval=getattr(self.meta_config, 'emergence_calculation_interval', 10),
                 state_entropy_weight=getattr(self.meta_config, 'emergence_state_entropy_weight', 0.30),
                 lyapunov_weight=getattr(self.meta_config, 'emergence_lyapunov_weight', 0.25),
                 attractor_dim_weight=getattr(self.meta_config, 'emergence_attractor_dim_weight', 0.20),

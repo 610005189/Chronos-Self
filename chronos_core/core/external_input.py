@@ -114,10 +114,6 @@ class ExternalInput:
         elif not isinstance(self.X_proprio, torch.Tensor):
             self.X_proprio = torch.tensor(self.X_proprio, dtype=torch.float32)
         else:
-            if not isinstance(self.X_proprio, torch.Tensor):
-                raise TypeError(
-                    f"X_proprio must be a torch.Tensor, got {type(self.X_proprio).__name__}"
-                )
             if self.X_proprio.dtype != torch.float32:
                 self.X_proprio = self.X_proprio.float()
             if self.X_proprio.dim() != 1:
