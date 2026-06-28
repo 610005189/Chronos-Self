@@ -869,7 +869,7 @@ class Reflection:
             "last_sleep_time": 0.0,
         }
         
-        logger.info("Reflection reset")
+        logger.debug("Reflection reset")
     
     def __repr__(self) -> str:
         status = "initialized" if self._initialized else "not_initialized"

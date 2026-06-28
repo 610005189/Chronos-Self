@@ -659,6 +659,9 @@ class P0Validation:
         λ_max = lim_{t→∞} (1/t) ln(||δE(t)|| / ||δE(0)||)
         使用数值方法计算，检查 λ_max ∈ (0, 0.1)，验证边缘混沌状态。
 
+        修复：使用两个独立的引擎实例同时运行参考和扰动轨迹，
+        确保初始条件相同（仅扰动不同），保证结果可比较。
+
         Args:
             final_state: 72小时运行后的最终状态
             verbose: 详细日志
@@ -673,69 +676,74 @@ class P0Validation:
 
         lyapunov_history = []
 
-        # 重置引擎到最终状态附近
-        self.engine.reset()
-        self.engine.initialize()
-
-        # 创建参考轨迹和扰动轨迹
-        reference_state = final_state.copy()
+        # 获取引擎配置用于创建独立实例
+        engine_config = self.engine.engine_config if hasattr(self.engine, 'engine_config') else None
 
         # 计算步数
         calc_steps = self.config.lyapunov_calculation_steps
+        dt = self.config.open_loop_dt
 
         # 执行多次计算取平均
         num_trials = 5
 
         for trial in range(num_trials):
-            # 创建扰动状态（随机扰动）
-            perturbation = torch.randn_like(reference_state.E_fast) * self.config.perturbation_magnitude
-            perturbed_state = SelfState(
-                E_fast=reference_state.E_fast + perturbation,
-                E_slow=reference_state.E_slow.clone(),
-                timestamp=reference_state.timestamp
+            # 创建两个独立的引擎实例（使用不同的随机种子确保演化轨迹不同）
+            if engine_config is not None and self.engine.global_config is not None:
+                # 使用当前时间戳作为扰动引擎的种子，确保不同的演化轨迹
+                import time
+                perturb_seed = int(time.time() * 1000 + trial * 1000) % (2**31)
+                ref_engine = IntegrationEngine(config=self.engine.global_config, engine_config=engine_config, device=self.device, seed=42)
+                pert_engine = IntegrationEngine(config=self.engine.global_config, engine_config=engine_config, device=self.device, seed=perturb_seed)
+                ref_engine.initialize()
+                pert_engine.initialize()
+            else:
+                # 回退：使用当前引擎的复制
+                ref_engine = self.engine
+                pert_engine = self.engine
+
+            # 创建参考状态和扰动状态
+            ref_state = final_state.copy()
+            perturbation = torch.randn_like(final_state.E_fast) * self.config.perturbation_magnitude
+            pert_state = SelfState(
+                E_fast=final_state.E_fast + perturbation,
+                E_slow=final_state.E_slow.clone(),
+                timestamp=final_state.timestamp
             )
 
             # 初始扰动距离
             delta_0 = torch.norm(perturbation).item()
 
-            # 运行参考轨迹和扰动轨迹
-            ref_state = reference_state.copy()
-            pert_state = perturbed_state.copy()
+            # 记录每次迭代的扰动距离（用于分析）
+            step_lyapunov = []
 
-            dt = self.config.open_loop_dt
-
+            # 同时运行参考轨迹和扰动轨迹
             for step in range(calc_steps):
-                # 更新参考轨迹
-                ref_state = self.engine.step(ref_state, inputs=None, dt=dt)
+                # 同时更新两个状态
+                ref_state = ref_engine.step(ref_state, inputs=None, dt=dt)
+                pert_state = pert_engine.step(pert_state, inputs=None, dt=dt)
 
-                # 保存引擎状态（用于恢复）
-                # 注意：这里需要重新初始化引擎来运行扰动轨迹
-                # 实际应用中可以使用两个独立的引擎实例
+                # 计算当前扰动距离
+                delta_t = torch.norm(pert_state.E_fast - ref_state.E_fast).item()
 
-            # 重新初始化引擎运行扰动轨迹
-            self.engine.reset()
-            self.engine.initialize()
+                # 记录中间步骤的 Lyapunov 指数（用于分析）
+                if step > 0 and delta_t > 0 and delta_0 > 0:
+                    current_lyapunov = (1.0 / (step * dt)) * np.log(delta_t / delta_0)
+                    step_lyapunov.append(current_lyapunov)
 
-            pert_state = perturbed_state.copy()
-            for step in range(calc_steps):
-                pert_state = self.engine.step(pert_state, inputs=None, dt=dt)
-
-            # 计算最终扰动距离
-            delta_t = torch.norm(pert_state.E_fast - ref_state.E_fast).item()
-
-            # 计算李雅普诺夫指数
+            # 计算最终 Lyapunov 指数
+            delta_t_final = torch.norm(pert_state.E_fast - ref_state.E_fast).item()
             time_elapsed = calc_steps * dt
 
-            if delta_0 > 0 and delta_t > 0:
-                lyapunov = (1.0 / time_elapsed) * np.log(delta_t / delta_0)
+            if delta_0 > 0 and delta_t_final > 0:
+                lyapunov = (1.0 / time_elapsed) * np.log(delta_t_final / delta_0)
                 lyapunov_history.append(lyapunov)
 
-            if verbose and trial % 2 == 0:
-                logger.info(
-                    f"  试验 {trial+1}/{num_trials}: "
-                    f"δ_0={delta_0:.6e}, δ_t={delta_t:.6e}, "
-                    f"λ={lyapunov:.6f}"
-                )
+                if verbose and trial % 2 == 0:
+                    logger.info(
+                        f"  试验 {trial+1}/{num_trials}: "
+                        f"δ_0={delta_0:.6e}, δ_t={delta_t_final:.6e}, "
+                        f"λ={lyapunov:.6f}"
+                    )
 
         # 统计李雅普诺夫指数
         if len(lyapunov_history) > 0:

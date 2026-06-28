@@ -63,6 +63,7 @@ class ChaosInjector:
         core_subspace_dim: int = 64,
         chaos_dim: int = 3,
         base_gain: float = 0.1,
+        min_gain: float = 0.1,
         target_variance: float = 1.0,
         device: Optional[str] = None,
         seed: Optional[int] = None
@@ -74,6 +75,7 @@ class ChaosInjector:
             core_subspace_dim: 核心子空间维度 (k)
             chaos_dim: 混沌吸引子维度 (默认为3)
             base_gain: 基础注入增益 (g0)
+            min_gain: 最小注入增益（防止自适应增益过低）
             target_variance: 目标方差 (σ²_target)
             device: 计算设备
             seed: 随机种子（用于固定投影矩阵）
@@ -81,6 +83,7 @@ class ChaosInjector:
         self.core_dim = core_subspace_dim
         self.chaos_dim = chaos_dim
         self.base_gain = base_gain
+        self.min_gain = min_gain
         self.target_variance = target_variance
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -251,12 +254,13 @@ class ChaosInjector:
         # 计算平均方差
         avg_variance = np.mean(self.variance_history) if self.variance_history else 0.0
 
-        # 自适应增益公式
-        # g = g0 * σ²_target / (σ²_target + Var)
-        if self.target_variance + avg_variance > 0:
-            new_gain = self.base_gain * self.target_variance / (
-                self.target_variance + avg_variance
-            )
+        # 自适应增益公式（改进版：更积极）
+        # 原公式：过于保守，g = g0 * σ²_target / (σ²_target + Var)
+        # 新公式：保持合理增益水平，不随方差急剧下降
+        # g = g0 * (1 + α) / (1 + β * Var/σ²_target)，其中 α=1.0, β=0.3
+        if self.target_variance > 0:
+            variance_ratio = avg_variance / self.target_variance
+            new_gain = self.base_gain * (2.0) / (1.0 + 0.3 * variance_ratio)
         else:
             new_gain = self.base_gain
 

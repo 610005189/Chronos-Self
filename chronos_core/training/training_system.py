@@ -256,7 +256,7 @@ class TrainingSystem(nn.Module):
         # 初始化标志
         self._initialized = False
 
-        logger.info(
+        logger.debug(
             f"TrainingSystem created: "
             f"mode={self.config.training_mode}, "
             f"epochs={self.config.num_epochs}, "
@@ -431,7 +431,7 @@ class TrainingSystem(nn.Module):
                 weight_decay=self.config.weight_decay
             )
 
-        logger.info(
+        logger.debug(
             f"Optimizer created: type={self.config.optimizer_type}, "
             f"lr={self.config.learning_rate}, "
             f"params={len(trainable_params)}"
@@ -538,7 +538,7 @@ class TrainingSystem(nn.Module):
 
         self._is_training = False
 
-        logger.info(
+        logger.debug(
             f"Training completed: "
             f"epochs={num_epochs}, "
             f"duration={self.history.duration_seconds:.2f}s, "
@@ -897,7 +897,7 @@ class TrainingSystem(nn.Module):
             self.integration_engine.step_count = engine_state['step_count']
             self.integration_engine.total_time = engine_state['total_time']
 
-        logger.info(
+        logger.debug(
             f"Checkpoint loaded: {filepath}, "
             f"epoch={self._current_epoch}, "
             f"best_loss={self.history.best_loss:.4f}"
@@ -954,7 +954,7 @@ class TrainingSystem(nn.Module):
         if self.freezing_strategy:
             self.freezing_strategy.reset()
 
-        logger.info("TrainingSystem reset")
+        logger.debug("TrainingSystem reset")
 
     def __repr__(self) -> str:
         status = "initialized" if self._initialized else "not_initialized"

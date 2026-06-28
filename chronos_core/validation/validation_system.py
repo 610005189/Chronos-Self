@@ -756,7 +756,7 @@ class Validation:
             P1级验证结果字典
         """
         if verbose:
-            logger.info("  P1级验证（功能模块验证）...")
+            logger.debug("  P1级验证（功能模块验证）...")
 
         p1_result = {
             "passed": False,
@@ -771,7 +771,7 @@ class Validation:
 
         # ===== DMN功能验证 =====
         if verbose:
-            logger.info("    - DMN功能验证...")
+            logger.debug("    - DMN功能验证...")
 
         dmn_results = self._validate_dmn(engine, verbose)
         p1_result["dmn"] = dmn_results
@@ -779,7 +779,7 @@ class Validation:
 
         # ===== 工作记忆验证 =====
         if verbose:
-            logger.info("    - 工作记忆验证...")
+            logger.debug("    - 工作记忆验证...")
 
         wm_results = self._validate_working_memory(engine, verbose)
         p1_result["working_memory"] = wm_results
@@ -787,7 +787,7 @@ class Validation:
 
         # ===== L2独立性验证 =====
         if verbose:
-            logger.info("    - L2独立性验证...")
+            logger.debug("    - L2独立性验证...")
 
         l2_results = self._validate_l2_independence(engine, verbose)
         p1_result["l2_independence"] = l2_results

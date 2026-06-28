@@ -134,7 +134,7 @@ class EvolutionFunctionMLP(nn.Module):
         # 初始化权重
         self._init_weights()
 
-        logger.info(
+        logger.debug(
             f"EvolutionFunctionMLP created: input_dim={input_dim}, "
             f"output_dim={output_dim}, hidden_dim={hidden_dim}, "
             f"layers={num_hidden_layers}"
@@ -176,7 +176,7 @@ class EvolutionFunctionMLP(nn.Module):
         for i, layer in enumerate(self.network):
             if hasattr(layer, 'weight_u'):  # 检测谱归一化包装（PyTorch使用 weight_u）
                 self.network[i] = nn.utils.remove_spectral_norm(layer)
-        logger.info("Spectral normalization removed from EvolutionFunctionMLP")
+        logger.debug("Spectral normalization removed from EvolutionFunctionMLP")
 
 
 class EvolutionFunctionTransformer(nn.Module):
@@ -240,7 +240,7 @@ class EvolutionFunctionTransformer(nn.Module):
         # 时间编码（使用谱归一化）
         self.time_encoding = nn.utils.spectral_norm(nn.Linear(1, hidden_dim))
 
-        logger.info(
+        logger.debug(
             f"EvolutionFunctionTransformer created: state_dim={state_dim}, "
             f"hidden_dim={hidden_dim}, heads={num_heads}, layers={num_layers}"
         )
@@ -312,7 +312,7 @@ class EvolutionFunctionTransformer(nn.Module):
         if hasattr(self.time_encoding, 'weight_u'):
             self.time_encoding = nn.utils.remove_spectral_norm(self.time_encoding)
 
-        logger.info("Spectral normalization removed from EvolutionFunctionTransformer")
+        logger.debug("Spectral normalization removed from EvolutionFunctionTransformer")
 
 
 class FastDynamicsFunction(DynamicsFunction):
@@ -448,7 +448,7 @@ class FastDynamicsFunction(DynamicsFunction):
         # 统计信息
         self.forward_calls = 0
 
-        logger.info(
+        logger.debug(
             f"FastDynamicsFunction created: fast_dim={self.config.fast_dim}, "
             f"input_dim={self.total_input_dim}, device={self.device}"
         )
@@ -692,7 +692,7 @@ class FastDynamicsFunction(DynamicsFunction):
         if hasattr(self.decay_layer, 'weight_u'):  # 检测谱归一化包装（PyTorch使用 weight_u）
             self.decay_layer = nn.utils.remove_spectral_norm(self.decay_layer)
 
-        logger.info("Spectral normalization removed from FastDynamicsFunction")
+        logger.debug("Spectral normalization removed from FastDynamicsFunction")
 
     def get_statistics(self) -> Dict:
         """获取统计信息"""
@@ -783,7 +783,7 @@ class FastDynamicsSystem(nn.Module):
         self._stability_log_interval = 50  # 每50步输出一次稳定性警告日志
         self._stability_log_counter = 0
 
-        logger.info(
+        logger.debug(
             f"FastDynamicsSystem created: fast_dim={self.config.fast_dim}, "
             f"device={self.device}"
         )
@@ -969,7 +969,7 @@ class FastDynamicsSystem(nn.Module):
         self._clip_log_counter = 0
         self._stability_log_counter = 0
 
-        logger.info("FastDynamicsSystem reset")
+        logger.debug("FastDynamicsSystem reset")
 
     def remove_spectral_norm(self) -> None:
         """
@@ -979,7 +979,7 @@ class FastDynamicsSystem(nn.Module):
         """
         if self.dynamics_fn and hasattr(self.dynamics_fn, 'remove_spectral_norm'):
             self.dynamics_fn.remove_spectral_norm()
-        logger.info("Spectral normalization removed from FastDynamicsSystem")
+        logger.debug("Spectral normalization removed from FastDynamicsSystem")
 
     def __repr__(self) -> str:
         status = "initialized" if self._initialized else "not_initialized"

@@ -27,11 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - ValidationResult 增加 p3_result/p4_result 字段
   - ExperimentRecord 增加 meta_consciousness 字段
 
+- 开发日志文档
+  - 新增 `docs/dev_log.md` 记录关键开发节点和技术发现
+
 - Phase 14 动力学精细化调整
-  - 混沌注入参数调优：base_gain 从 0.01 → 0.03，新增 min_gain=0.01，attractor_noise_scale=0.003
+  - 混沌注入参数调优：base_gain=0.1, min_gain=0.1, attractor_noise_scale=0.01
   - 配置传递修复：DMN 系统使用 base_gain 而非 chaos_injection_gain
   - min_gain 参数支持：混沌注入器添加最小增益限制，防止自适应增益过低
+  - 自适应增益公式改进：g = g0 * 2.0 / (1.0 + 0.3 * Var/σ²_target)（更积极）
+  - 耦合上限放宽：slow_coupling_limit 从 0.1 提高到 0.5
+  - Lyapunov 阈值放宽：lyapunov_negative_threshold 从 -0.1 放宽到 -0.5
   - P4 主体独立性验证改进：增加 Spearman 相关性和 Wasserstein 距离度量
+
+- Phase 15 日志密度优化
+  - 各模块日志级别降级：fast_dynamics, slow_dynamics, meta_cognitive_system, training_system, validation_system, reflection_system, attractor_manager, fusion
+  - 将参数信息、创建信息等详细日志从 info 降级为 debug
 
 ### Changed
 
@@ -56,6 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 修复 DMN 系统配置参数传递错误（dmn_system.py）
   - 使用 chaos_config.base_gain 而非 chaos_config.chaos_injection_gain
+
+- 修复 Lyapunov 指数计算逻辑缺陷（dynamics_monitoring.py, p0_validation.py）
+  - dynamics_monitoring: 从简化假设计算改为真实双引擎轨迹积分
+  - p0_validation: 从分开运行轨迹改为同时运行参考和扰动轨迹
+  - 创建两个独立引擎实例，使用不同随机种子确保演化轨迹不同
 
 ### Removed
 

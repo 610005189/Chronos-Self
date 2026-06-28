@@ -693,7 +693,7 @@ class MetaCognitive(nn.Module):
         if self.manager:
             self.manager.start_ablation_test()
         
-        logger.info(
+        logger.debug(
             f"Ablation test started at step {self._current_step}: "
             f"L2 control signal removed"
         )
@@ -713,7 +713,7 @@ class MetaCognitive(nn.Module):
         if self.manager:
             self.manager.end_ablation_test()
         
-        logger.info(
+        logger.debug(
             f"Ablation test ended at step {self._current_step}: "
             f"L2 control signal restored"
         )
@@ -906,7 +906,7 @@ class MetaCognitive(nn.Module):
         Returns:
             测试结果
         """
-        logger.info(f"Testing system with L2 regulation for {num_steps} steps")
+        logger.debug(f"Testing system with L2 regulation for {num_steps} steps")
         
         # 确保消融测试未激活
         self._ablation_active = False
@@ -941,7 +941,7 @@ class MetaCognitive(nn.Module):
             "std_performance": np.std(performance_metrics) if performance_metrics else 0.0,
         }
         
-        logger.info(
+        logger.debug(
             f"Test with L2 completed: "
             f"mean_performance={test_result['mean_performance']:.4f}"
         )
@@ -965,7 +965,7 @@ class MetaCognitive(nn.Module):
         Returns:
             测试结果
         """
-        logger.info(f"Testing system without L2 regulation for {num_steps} steps")
+        logger.debug(f"Testing system without L2 regulation for {num_steps} steps")
         
         # 手动激活消融
         self._ablation_active = True
@@ -1003,7 +1003,7 @@ class MetaCognitive(nn.Module):
             "std_performance": np.std(performance_metrics) if performance_metrics else 0.0,
         }
         
-        logger.info(
+        logger.debug(
             f"Test without L2 completed: "
             f"mean_performance={test_result['mean_performance']:.4f}"
         )

@@ -41,7 +41,7 @@ class CouplingConfig:
     # 耦合强度限制
     coupling_upper_bound: float = 10.0  # 耦合系数上限
     coupling_lower_bound: float = 0.001  # 耦合系数下限
-    slow_coupling_limit: float = 0.1  # 慢变量耦合系数上限（相对于慢变量时间尺度 τ_slow）
+    slow_coupling_limit: float = 0.5  # 慢变量耦合系数上限（提高以增强混沌注入效果）
 
     # 稳定性参数
     stability_threshold: float = 1e6  # 状态范数阈值
@@ -50,7 +50,7 @@ class CouplingConfig:
 
     # Lyapunov指数阈值（边缘混沌）
     lyapunov_positive_threshold: float = 0.1  # 最大 Lyapunov 指数上限（防止发散）
-    lyapunov_negative_threshold: float = -0.1  # 最小 Lyapunov 指数下限（防止冻结）
+    lyapunov_negative_threshold: float = -0.5  # 最小 Lyapunov 指数下限（放宽以允许更多混沌）
 
     # 监控间隔
     monitoring_interval: int = 100  # 每 N 步检查一次稳定性

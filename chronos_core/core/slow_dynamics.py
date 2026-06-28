@@ -143,7 +143,7 @@ class PoolingMechanism(nn.Module):
         # 统计信息
         self.pooling_calls = 0
 
-        logger.info(
+        logger.debug(
             f"PoolingMechanism created: method={method}, "
             f"fast_dim={fast_dim}, slow_dim={slow_dim}"
         )
@@ -281,7 +281,7 @@ class SpontaneousEvolution(nn.Module):
         # 统计
         self.forward_calls = 0
 
-        logger.info(
+        logger.debug(
             f"SpontaneousEvolution created: slow_dim={slow_dim}, "
             f"rate={spontaneous_rate}"
         )
@@ -555,7 +555,7 @@ class SlowDynamicsFunction(DynamicsFunction):
     def reset_baseline(self) -> None:
         """重置 baseline"""
         self.E_slow_baseline = torch.zeros(self.config.slow_dim, device=self.device)
-        logger.info("Slow baseline reset")
+        logger.debug("Slow baseline reset")
 
     def __repr__(self) -> str:
         return (
@@ -628,7 +628,7 @@ class SlowDynamicsSystem(nn.Module):
         # 初始化标志
         self._initialized = False
 
-        logger.info(
+        logger.debug(
             f"SlowDynamicsSystem created: slow_dim={self.config.slow_dim}, "
             f"update_frequency={self.config.slow_update_frequency}"
         )
@@ -643,7 +643,7 @@ class SlowDynamicsSystem(nn.Module):
         self.add_module('dynamics_fn', self.dynamics_fn)
 
         self._initialized = True
-        logger.info("SlowDynamicsSystem initialized")
+        logger.debug("SlowDynamicsSystem initialized")
 
     def should_update_slow(self) -> bool:
         """
@@ -817,7 +817,7 @@ class SlowDynamicsSystem(nn.Module):
         if self.dynamics_fn:
             self.dynamics_fn.reset_baseline()
 
-        logger.info("SlowDynamicsSystem reset")
+        logger.debug("SlowDynamicsSystem reset")
 
     def __repr__(self) -> str:
         status = "initialized" if self._initialized else "not_initialized"

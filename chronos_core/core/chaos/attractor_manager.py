@@ -97,7 +97,7 @@ class AttractorManager:
         # 切换历史
         self.switch_history: List[SwitchRecord] = []
 
-        logger.info(
+        logger.debug(
             f"AttractorManager initialized: switch_interval={switch_interval}, "
             f"transition_steps={transition_steps}, smoothing={smoothing_factor}"
         )
@@ -496,7 +496,7 @@ class AttractorManager:
 
         self.initialize_states(seed)
 
-        logger.info("AttractorManager reset")
+        logger.debug("AttractorManager reset")
 
     def to_dict(self) -> Dict:
         """序列化为字典"""

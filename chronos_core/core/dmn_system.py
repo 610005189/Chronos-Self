@@ -191,6 +191,7 @@ class DefaultModeNetwork:
             core_subspace_dim=self.config.core_subspace_dim,
             chaos_dim=3,
             base_gain=self.config.base_gain,
+            min_gain=self.config.min_gain,
             target_variance=self.config.target_variance,
             device=self.device,
             seed=self.seed

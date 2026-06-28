@@ -121,7 +121,8 @@ class ChaosInjectionConfig:
     chua_m1: float = -0.714
     
     # Attractor switching interval (in steps)
-    attractor_switch_interval: int = 5000
+    # Reduced from 5000 to 2000 for more frequent attractor switching
+    attractor_switch_interval: int = 2000
     
     # Chaos injection gain (controls influence on dynamics)
     chaos_injection_gain: float = 0.005
@@ -129,14 +130,14 @@ class ChaosInjectionConfig:
     # Transition smoothing factor for attractor switching
     attractor_transition_smoothing: float = 0.95
     
-    # Base gain for chaos injection (increased from 0.01 to 0.03 for edge-of-chaos)
-    base_gain: float = 0.03
+    # Base gain for chaos injection (increased from 0.05 to 0.1 for stronger chaos)
+    base_gain: float = 0.1
 
-    # Minimum gain for chaos injection (ensures minimal chaos injection)
-    min_gain: float = 0.01
+    # Minimum gain for chaos injection (increased to 0.1 to prevent adaptive gain from dropping too low)
+    min_gain: float = 0.1
 
-    # Attractor noise scale for perturbation (increased for more chaotic behavior)
-    attractor_noise_scale: float = 0.003
+    # Attractor noise scale for perturbation (increased from 0.005 to 0.01 for more chaotic behavior)
+    attractor_noise_scale: float = 0.01
 
     # Gain smoothing factor for adaptive gain control
     gain_smoothing: float = 0.95

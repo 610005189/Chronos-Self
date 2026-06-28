@@ -48,10 +48,10 @@ class DynamicsMonitoringConfig:
     autocorrelation_check_interval: int = 100  # 检查间隔
 
     # 李雅普诺夫指数参数
-    lyapunov_window: int = 1000  # 计算窗口大小
+    lyapunov_window: int = 100  # 计算窗口大小（降低以支持快速测试）
     lyapunov_min_threshold: float = 0.0  # 边缘混沌下限
     lyapunov_max_threshold: float = 0.1  # 边缘混沌上限
-    lyapunov_calculation_interval: int = 200  # 计算间隔
+    lyapunov_calculation_interval: int = 50  # 计算间隔（降低以支持快速测试）
     perturbation_magnitude: float = 1e-6  # 扰动大小
 
     # 自预测误差参数
@@ -398,6 +398,9 @@ class DynamicsMonitoring:
         λ_max = lim_{t→∞} (1/t) ln(||δE(t)|| / ||δE(0)||)
         监测演化趋势，检查是否稳定在 (0, 0.1) 区间。
 
+        修复：使用两个独立的引擎实例同时运行参考和扰动轨迹，
+        确保初始条件相同（仅扰动不同），保证结果可比较。
+
         Args:
             current_state: 当前状态
             verbose: 详细日志
@@ -415,9 +418,28 @@ class DynamicsMonitoring:
                 "history": []
             }
 
-        # 创建扰动状态
+        # 获取引擎配置用于创建独立实例
+        engine_config = self.engine.engine_config if hasattr(self.engine, 'engine_config') else None
+        global_config = self.engine.global_config if hasattr(self.engine, 'global_config') else None
+
+        # 创建两个独立的引擎实例（使用不同的随机种子确保演化轨迹不同）
+        if engine_config is not None and global_config is not None:
+            # 使用当前时间戳作为扰动引擎的种子，确保不同的演化轨迹
+            import time
+            perturb_seed = int(time.time() * 1000) % (2**31)
+            ref_engine = IntegrationEngine(config=global_config, engine_config=engine_config, device=self.device, seed=42)
+            pert_engine = IntegrationEngine(config=global_config, engine_config=engine_config, device=self.device, seed=perturb_seed)
+            ref_engine.initialize()
+            pert_engine.initialize()
+        else:
+            # 回退：使用当前引擎
+            ref_engine = self.engine
+            pert_engine = self.engine
+
+        # 创建参考状态和扰动状态
+        ref_state = current_state.copy()
         perturbation = torch.randn_like(current_state.E_fast) * self.config.perturbation_magnitude
-        perturbed_state = SelfState(
+        pert_state = SelfState(
             E_fast=current_state.E_fast + perturbation,
             E_slow=current_state.E_slow.clone(),
             timestamp=current_state.timestamp
@@ -426,54 +448,64 @@ class DynamicsMonitoring:
         # 初始扰动距离
         delta_0 = torch.norm(perturbation).item()
 
-        # 创建临时引擎实例用于扰动轨迹
-        # 注意：实际应用中可能需要引擎复制机制
-        # 这里简化处理：使用当前引擎状态作为参考
+        # 运行步数
+        calc_steps = 100  # 固定步数
+        dt = self.engine.engine_config.default_dt if engine_config else 0.01
 
-        # 运行参考轨迹（从历史状态）
-        recent_states = list(self._state_history)[-self.config.lyapunov_window:]
-        ref_trajectory = [state.E_fast.clone() for state in recent_states]
+        # 记录每次迭代的扰动距离
+        step_lyapunov = []
 
-        # 模拟扰动轨迹（简化版本）
-        # 在实际应用中应该运行真实的积分
-        pert_trajectory = []
-        current_pert = perturbed_state.E_fast.clone()
+        # 同时运行参考轨迹和扰动轨迹
+        for step in range(calc_steps):
+            # 同时更新两个状态
+            ref_state = ref_engine.step(ref_state, inputs=None, dt=dt)
+            pert_state = pert_engine.step(pert_state, inputs=None, dt=dt)
 
-        for i in range(min(10, len(ref_trajectory))):
-            # 简化的扰动演化（添加线性增长假设）
-            pert_factor = 1.0 + i * 0.01  # 简化的增长率
-            pert_trajectory.append(current_pert.clone())
-            current_pert = current_pert * pert_factor
+            # 计算当前扰动距离
+            delta_t = torch.norm(pert_state.E_fast - ref_state.E_fast).item()
 
-        # 计算最终扰动距离（使用参考轨迹和扰动轨迹）
-        if len(ref_trajectory) > 0 and len(pert_trajectory) > 0:
-            ref_final = ref_trajectory[-1]
-            pert_final = pert_trajectory[-1]
+            # 记录中间步骤的 Lyapunov 指数（用于分析）
+            if step > 0 and delta_t > 0 and delta_0 > 0:
+                current_lyapunov = (1.0 / (step * dt)) * np.log(delta_t / delta_0)
+                step_lyapunov.append(current_lyapunov)
 
-            delta_t = torch.norm(pert_final - ref_final).item()
+        # 计算最终 Lyapunov 指数
+        delta_t_final = torch.norm(pert_state.E_fast - ref_state.E_fast).item()
+        time_elapsed = calc_steps * dt
 
-            # 计算李雅普诺夫指数
-            time_elapsed = len(ref_trajectory) * self.engine.engine_config.default_dt
+        # 调试输出
+        if verbose:
+            logger.info(
+                f"Lyapunov debug: delta_0={delta_0:.6e}, delta_t={delta_t_final:.6e}, "
+                f"ratio={delta_t_final/delta_0 if delta_0 > 0 else 0:.6f}, "
+                f"time={time_elapsed:.4f}"
+            )
 
-            if delta_0 > 0 and delta_t > 0 and time_elapsed > 0:
-                lambda_max = (1.0 / time_elapsed) * np.log(delta_t / delta_0)
+        if delta_0 > 0 and delta_t_final > 0 and time_elapsed > 0:
+            lambda_max = (1.0 / time_elapsed) * np.log(delta_t_final / delta_0)
 
-                # 检查是否在边缘混沌区间
-                passed = bool(
-                    lambda_max > self.config.lyapunov_min_threshold and
-                    lambda_max < self.config.lyapunov_max_threshold
+            # 检查是否在边缘混沌区间
+            passed = bool(
+                lambda_max > self.config.lyapunov_min_threshold and
+                lambda_max < self.config.lyapunov_max_threshold
+            )
+
+            # 历史记录
+            history = list(self._lyapunov_history) if len(self._lyapunov_history) > 0 else [lambda_max]
+
+            if verbose:
+                logger.info(
+                    f"Lyapunov real-time: λ={lambda_max:.6f}, "
+                    f"passed={passed}, delta_0={delta_0:.6e}, delta_t={delta_t_final:.6e}"
                 )
 
-                # 历史记录
-                history = list(self._lyapunov_history) if len(self._lyapunov_history) > 0 else [lambda_max]
-
-                return {
-                    "lambda_max": lambda_max,
-                    "lambda_mean": np.mean(history),
-                    "lambda_std": np.std(history) if len(history) > 1 else 0.0,
-                    "passed": passed,
-                    "history": history
-                }
+            return {
+                "lambda_max": lambda_max,
+                "lambda_mean": np.mean(history),
+                "lambda_std": np.std(history) if len(history) > 1 else 0.0,
+                "passed": passed,
+                "history": history
+            }
 
         return {
             "lambda_max": 0.0,

@@ -272,7 +272,7 @@ class SemanticToPhysicalCrossAttention(nn.Module):
         # Attention mechanism
         self.attention = ScaledDotProductAttention(dropout=dropout, scale_by_dim=True)
 
-        logger.info(
+        logger.debug(
             f"Initialized SemanticToPhysicalCrossAttention: "
             f"sem_dim={sem_dim}, log_dim={log_dim}, num_heads={num_heads}, "
             f"head_dim={self.head_dim}, output_dim={self.output_dim}"
@@ -461,7 +461,7 @@ class PhysicalToSemanticCrossAttention(nn.Module):
         # Attention mechanism
         self.attention = ScaledDotProductAttention(dropout=dropout, scale_by_dim=True)
 
-        logger.info(
+        logger.debug(
             f"Initialized PhysicalToSemanticCrossAttention: "
             f"log_dim={log_dim}, sem_dim={sem_dim}, num_heads={num_heads}, "
             f"effective_query_dim={self.effective_query_dim}, head_dim={self.head_dim}, "
@@ -666,7 +666,7 @@ class FusionModule(nn.Module):
         else:
             self.output_projection = None
 
-        logger.info(
+        logger.debug(
             f"Initialized FusionModule: sem_dim={sem_dim}, log_dim={log_dim}, "
             f"fusion_dim={fusion_dim}, use_attention_fusion={use_attention_fusion}, "
             f"num_heads={num_heads}"
