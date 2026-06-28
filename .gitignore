@@ -143,4 +143,7 @@ docs/*.tmp
 docs/*.temp
 docs/**/*.bak
 
+# Articles (user-generated content)
+articles/
+
 # Root level test files (moved to scripts/)
