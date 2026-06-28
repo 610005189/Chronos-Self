@@ -265,8 +265,8 @@ class ChaosInjector:
             1 - self.gain_smoothing
         ) * new_gain
 
-        # 增益范围限制
-        self.current_gain = max(0.001, min(1.0, self.current_gain))
+        # 增益范围限制（使用 min_gain 防止增益过低）
+        self.current_gain = max(self.min_gain, min(1.0, self.current_gain))
 
         logger.debug(
             f"Updated adaptive gain: variance={avg_variance:.4f}, "

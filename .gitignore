@@ -116,6 +116,10 @@ verify_*.py
 .trae/
 .trae-cn/
 
+# Experiment logs
+validation_results/experiment_log.json
+validation_results/full_validation_report.json
+validation_results/VALIDATION_REPORT.md
 
 # Temporary scripts (moved to scripts/)
 scripts/test_core.py

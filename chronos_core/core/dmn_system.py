@@ -125,7 +125,9 @@ class DefaultModeNetwork:
         self.config = config or DMNConfig()
 
         if chaos_config:
-            self.config.base_gain = chaos_config.chaos_injection_gain
+            # 使用 base_gain 而不是 chaos_injection_gain（保持一致性）
+            self.config.base_gain = chaos_config.base_gain
+            self.config.min_gain = chaos_config.min_gain
             self.config.switch_interval = chaos_config.attractor_switch_interval
             self.config.attractor_smoothing = chaos_config.attractor_transition_smoothing
 

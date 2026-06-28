@@ -128,6 +128,21 @@ class ChaosInjectionConfig:
     
     # Transition smoothing factor for attractor switching
     attractor_transition_smoothing: float = 0.95
+    
+    # Base gain for chaos injection (increased from 0.01 to 0.03 for edge-of-chaos)
+    base_gain: float = 0.03
+
+    # Minimum gain for chaos injection (ensures minimal chaos injection)
+    min_gain: float = 0.01
+
+    # Attractor noise scale for perturbation (increased for more chaotic behavior)
+    attractor_noise_scale: float = 0.003
+
+    # Gain smoothing factor for adaptive gain control
+    gain_smoothing: float = 0.95
+
+    # Attractor switch threshold for stability control
+    attractor_switch_threshold: float = 0.3
 
 
 @dataclass

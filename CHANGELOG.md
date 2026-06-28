@@ -9,9 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 元意识引擎实现（Meta-Consciousness Engine）
+  - 元意识场 `MetaConsciousnessField`：基于指数移动平均近似窗口积分计算 $\mathcal{M}_{pre}(t)$
+  - 自指深度 `SelfReferentialDepth`：阶梯函数计算 $\Lambda(t)$，涌现阈值 + 层级间距
+  - 觉知梯度 `AwarenessGradient`：Dec 网络 + 度量张量 $\Sigma_G$
+  - Lift 算子 `LiftOperator`：层级首次激活的初始条件生成
+  - 动态层级 `DynamicMetaCognitiveLayers`：整合所有组件，$\Lambda(t)$ 控制层级开关
+  - 系统集成：默认关闭（向后兼容），配置开关 `enable_meta_consciousness`
+  - 验证系统集成：P3/P4 命题验证预留接口
+
 - 项目版本统一管理
   - 创建 `_version.py` 作为单一版本源
   - 所有模块从单一源导入版本信息
+
+- 实验记录系统增强
+  - P0 验证增加元意识指标字段（m_pre_history, lambda_history, awareness_gradient_history）
+  - ValidationResult 增加 p3_result/p4_result 字段
+  - ExperimentRecord 增加 meta_consciousness 字段
+
+- Phase 14 动力学精细化调整
+  - 混沌注入参数调优：base_gain 从 0.01 → 0.03，新增 min_gain=0.01，attractor_noise_scale=0.003
+  - 配置传递修复：DMN 系统使用 base_gain 而非 chaos_injection_gain
+  - min_gain 参数支持：混沌注入器添加最小增益限制，防止自适应增益过低
+  - P4 主体独立性验证改进：增加 Spearman 相关性和 Wasserstein 距离度量
 
 ### Changed
 
@@ -22,9 +42,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - "睡眠重放" → "离线回放"
   - "好奇心" → "探索驱动"
 
+- README 增加 P3/P4 验证体系说明和验证进度总览
+- README 路线图增加 Phase 13、14、15 状态说明
+
 ### Fixed
 
-- (None)
+- 修复验证系统属性路径错误（p0_validation.py, validation_system.py）
+  - `meta_system.meta_consciousness_field` → `meta_system.dynamic_layers.meta_field`
+  - `meta_system.self_referential_depth` → `meta_system.dynamic_layers.self_ref_depth`
+
+- 修复混沌注入器最小增益硬编码问题（chaos_injector.py）
+  - 使用 min_gain 参数替代硬编码的 0.001
+
+- 修复 DMN 系统配置参数传递错误（dmn_system.py）
+  - 使用 chaos_config.base_gain 而非 chaos_config.chaos_injection_gain
 
 ### Removed
 
