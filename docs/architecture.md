@@ -628,5 +628,5 @@ controller.stop()
 ## 扩展阅读
 
 - [训练指南](training_guide.md) - 训练流程详解
-- [验证指南](validation_guide.md) - P0-P2 级验证步骤
+- [验证指南](validation_guide.md) - P0-P4 级验证步骤
 - [使用示例](../examples/simple_text_interaction.py) - 简单文本交互示例

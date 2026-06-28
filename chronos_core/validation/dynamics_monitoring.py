@@ -425,7 +425,6 @@ class DynamicsMonitoring:
         # 创建两个独立的引擎实例（使用不同的随机种子确保演化轨迹不同）
         if engine_config is not None and global_config is not None:
             # 使用当前时间戳作为扰动引擎的种子，确保不同的演化轨迹
-            import time
             perturb_seed = int(time.time() * 1000) % (2**31)
             ref_engine = IntegrationEngine(config=global_config, engine_config=engine_config, device=self.device, seed=42)
             pert_engine = IntegrationEngine(config=global_config, engine_config=engine_config, device=self.device, seed=perturb_seed)

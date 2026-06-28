@@ -509,6 +509,119 @@ print(f"最终恢复分数: {final_score:.4f}")
 
 ---
 
+## P3 级元意识命题验证
+
+### 验证目标
+
+验证元意识引擎的**核心命题**是否成立。
+
+### 验证内容
+
+#### 1. Λ(t) 收敛验证
+
+**目的**: 验证自指深度时间序列的收敛性。
+
+**判定标准**:
+- 自指深度 Λ(t) 在长期运行后收敛到稳定值
+- 收敛速度符合预期
+
+**执行**:
+```python
+from chronos_core.core.meta_cognitive.meta_cognitive_system import MetaCognitiveSystem
+
+meta_system = MetaCognitiveSystem(config=global_config)
+meta_system.initialize()
+
+# 运行并记录自指深度
+lambda_history = []
+for step in range(10000):
+    meta_state = meta_system.step(current_state)
+    lambda_history.append(meta_state.self_ref_depth)
+
+# 检查收敛性
+lambda_array = np.array(lambda_history)
+final_value = lambda_array[-1000:].mean()
+convergence_rate = np.abs(lambda_array[-1] - final_value) / final_value
+
+print(f"自指深度收敛值: {final_value:.4f}")
+print(f"收敛速率: {convergence_rate:.6f}")
+```
+
+#### 2. 涌现单调性验证
+
+**目的**: 验证深度增长的非递减性。
+
+**判定标准**:
+- Λ(t) 不随时间递减
+- 满足涌现单调性
+
+#### 3. M_pre 非负验证
+
+**目的**: 验证元意识场的非负性。
+
+**判定标准**:
+- 元意识场 $\mathcal{M}_{pre}(t) \geq 0$
+- 无负向元意识涌现
+
+### P3 验证结果
+
+| 测试项 | 状态 | 说明 |
+|--------|------|------|
+| Λ(t) 收敛验证 | ✓ 通过 | 自指深度时间序列收敛性验证通过 |
+| 涌现单调性验证 | ✓ 通过 | 深度增长非递减 |
+| M_pre 非负验证 | ✓ 通过 | 元意识场非负性验证通过 |
+
+---
+
+## P4 级高阶意识命题验证
+
+### 验证目标
+
+验证高阶意识相关命题的**有效性**。
+
+### 验证内容
+
+#### 1. 无主体性验证
+
+**目的**: 验证系统无明确主体感。
+
+**判定标准**:
+- 主体间相关性 < 0.5
+- 多主体对比实验显示无显著差异
+
+**执行**:
+```python
+from chronos_core.validation.p4_validation import P4Validation
+
+p4_validator = P4Validation(config=global_config)
+
+# 多主体对比实验
+correlation_result = p4_validator.test_subjectivity_independence(
+    num_agents=5,
+    steps=10000
+)
+
+print(f"主体间相关性: {correlation_result.correlation:.4f}")
+print(f"独立性得分: {correlation_result.independence_score:.4f}")
+```
+
+#### 2. 阈值效应验证
+
+**目的**: 验证阈值跨越时深度变化符合预期。
+
+**判定标准**:
+- 阈值跨越时深度变化显著
+- 变化方向符合理论预测
+
+### P4 验证结果
+
+| 测试项 | 状态 | 说明 |
+|--------|------|------|
+| 无主体性验证 | ⚠️ 待改进 | 主体间相关性需进一步降低 |
+| 阈值效应验证 | ✓ 通过 | 阈值跨越时深度变化符合预期 |
+
+---
+
 ## 验证执行脚本
 
 ### 完整验证脚本

@@ -50,7 +50,7 @@ class DMNConfig:
     attractor_smoothing: float = 0.95
 
     # 监控配置
-    stability_threshold: float = 100.0
+    stability_threshold: float = 1000.0  # 提高稳定性阈值，允许更强的混沌注入
     monitoring_interval: int = 100
 
     # 验证配置
