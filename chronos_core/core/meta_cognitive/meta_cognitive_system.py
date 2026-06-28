@@ -301,7 +301,7 @@ class MetaCognitive(nn.Module):
     
     def _initialize_emergence(self):
         """初始化竞争性涌现判定器"""
-        if self.meta_config.enable_emergence:
+        if getattr(self.meta_config, 'enable_emergence', False):
             emergence_config = EmergenceConfig(
                 enable_emergence=True,
                 calculation_window=getattr(self.meta_config, 'emergence_calculation_window', 200),
@@ -503,7 +503,7 @@ class MetaCognitive(nn.Module):
         self._stats["total_steps"] += 1
         
         # 竞争性涌现检测
-        if self.meta_config.enable_emergence and self.emergence_detector:
+        if getattr(self.meta_config, 'enable_emergence', False) and self.emergence_detector:
             self._update_emergence_detection(outputs)
         
         # 消融测试检查

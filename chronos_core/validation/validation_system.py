@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import json
 import time
+from datetime import datetime, timezone
 from enum import Enum
 
 from chronos_core.utils.config import ChronosConfig
@@ -39,6 +40,7 @@ from chronos_core.core.integration_engine import IntegrationEngine
 from .p0_validation import P0Validation, P0ValidationResult, P0ValidationConfig
 from .dynamics_monitoring import DynamicsMonitoring, DynamicsIndicators, DynamicsMonitoringConfig
 from .behavioral_metrics import BehavioralMetrics, BehavioralIndicators, BehavioralMetricsConfig
+from .experiment_log import ExperimentLog, ExperimentRecord, generate_experiment_id
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +122,10 @@ class ValidationResult:
     # 验证报告
     report_path: Optional[str] = None
 
+    # 实验记录与性能分析
+    experiment_id: str = ""
+    profiling_data: Optional[dict] = None
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {
@@ -144,7 +150,9 @@ class ValidationResult:
                 "score": self.overall_score,
                 "emergence_detected": self.emergence_detected
             },
-            "report_path": self.report_path
+            "report_path": self.report_path,
+            "experiment_id": self.experiment_id,
+            "profiling_data": self.profiling_data
         }
 
 
@@ -226,6 +234,7 @@ class Validation:
 
         # 创建结果对象
         result = ValidationResult(validation_mode=mode)
+        result.experiment_id = generate_experiment_id()
 
         # 根据验证模式执行不同流程
         if mode == ValidationMode.QUICK:
@@ -244,6 +253,36 @@ class Validation:
 
         # 保存报告
         self.save_final_report(result, verbose)
+
+        # 自动记录实验日志
+        try:
+            config = {
+                "validation_mode": mode.value,
+                "engine_config": {
+                    "fast_dim": engine.engine_config.fast_dim,
+                    "slow_dim": engine.engine_config.slow_dim,
+                    "default_dt": engine.engine_config.default_dt,
+                } if hasattr(engine, 'engine_config') else {},
+            }
+            metrics = {
+                "overall_passed": result.overall_passed,
+                "overall_score": result.overall_score,
+                "p0_passed": result.p0_passed,
+                "p1_passed": result.p1_passed,
+                "p2_passed": result.p2_passed,
+            }
+            record = ExperimentRecord(
+                experiment_id=result.experiment_id,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                duration_s=round(result.validation_time, 3),
+                config=config,
+                metrics=metrics,
+                profilation_data=result.profiling_data,
+                git_commit=None,
+            )
+            ExperimentLog().append(record)
+        except Exception as exc:
+            logger.warning("Failed to auto-log experiment: %s", exc)
 
         self._is_validating = False
 

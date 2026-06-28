@@ -110,6 +110,7 @@ class P0ValidationResult:
     # 统计信息
     validation_time: float = 0.0
     device: str = "cpu"
+    timing_breakdown: Dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -147,7 +148,8 @@ class P0ValidationResult:
             },
             "stats": {
                 "validation_time": self.validation_time,
-                "device": self.device
+                "device": self.device,
+                "timing_breakdown": self.timing_breakdown
             }
         }
 
@@ -257,6 +259,10 @@ class P0Validation:
             result.is_passed = False
             result.overall_score = 0.0
             result.validation_time = time.time() - start_time
+            result.timing_breakdown = {
+                "open_loop_run": open_loop_result.get("timing", {}).get("total_time_s", 0.0),
+                "open_loop_steps_per_sec": open_loop_result.get("timing", {}).get("steps_per_sec", 0.0),
+            }
             return result
 
         if verbose:
@@ -348,6 +354,14 @@ class P0Validation:
         }
         result.overall_score = sum(scores.values())
 
+        # 收集各子步骤计时数据
+        result.timing_breakdown = {
+            "open_loop_run": open_loop_result.get("timing", {}).get("total_time_s", 0.0),
+            "open_loop_steps_per_sec": open_loop_result.get("timing", {}).get("steps_per_sec", 0.0),
+            "baseline_drift_calc": drift_result.get("timing", {}).get("calc_time_s", 0.0),
+            "lyapunov_calc": lyapunov_result.get("timing", {}).get("calc_time_s", 0.0),
+        }
+
         result.validation_time = time.time() - start_time
 
         if verbose:
@@ -394,6 +408,7 @@ class P0Validation:
         steps_completed = 0
         is_stable = True
         is_edge_of_chaos = True
+        loop_start_time = time.time()
 
         # 状态轨迹采样
         trajectory_samples = []
@@ -428,6 +443,17 @@ class P0Validation:
                     if self.config.save_trajectory:
                         if step_idx % self.config.trajectory_sample_interval == 0:
                             trajectory_samples.append(current_state.copy())
+
+                    # 日志：每1000步平均步时
+                    elapsed = time.time() - loop_start_time
+                    if elapsed > 0 and verbose:
+                        avg_step_ms = (elapsed / (step_idx + 1)) * 1000.0
+                        step_rate = (step_idx + 1) / elapsed
+                        logger.debug(
+                            f"  步数 {step_idx}: "
+                            f"平均步时 {avg_step_ms:.4f} ms, "
+                            f"速率 {step_rate:.1f} 步/s"
+                        )
 
                     # 严重不稳定时停止
                     if stability_warnings > self.config.max_stability_warnings:
@@ -475,7 +501,11 @@ class P0Validation:
             "duration_hours": duration_hours,
             "steps_completed": steps_completed,
             "stability_warnings": stability_warnings,
-            "final_state": current_state
+            "final_state": current_state,
+            "timing": {
+                "total_time_s": time.time() - loop_start_time,
+                "steps_per_sec": steps_completed / (time.time() - loop_start_time) if (time.time() - loop_start_time) > 0 else 0.0
+            }
         }
 
         if verbose:
@@ -505,6 +535,8 @@ class P0Validation:
         Returns:
             测试结果字典
         """
+        drift_start_time = time.time()
+
         if len(self._baseline_history) == 0:
             logger.warning("  无基线历史数据，使用轨迹数据")
             if len(self._trajectory) > 0:
@@ -517,7 +549,8 @@ class P0Validation:
                     "rate": float('inf'),
                     "baseline_norm_initial": 0.0,
                     "baseline_norm_final": 0.0,
-                    "time_elapsed": 0.0
+                    "time_elapsed": 0.0,
+                    "timing": {"calc_time_s": time.time() - drift_start_time}
                 }
         else:
             baseline_initial = self._baseline_history[0]
@@ -540,7 +573,8 @@ class P0Validation:
             "rate": drift_rate,
             "baseline_norm_initial": baseline_norm_initial,
             "baseline_norm_final": baseline_norm_final,
-            "time_elapsed": time_elapsed
+            "time_elapsed": time_elapsed,
+            "timing": {"calc_time_s": time.time() - drift_start_time}
         }
 
         if verbose:
@@ -575,6 +609,8 @@ class P0Validation:
         """
         if verbose:
             logger.info(f"  计算李雅普诺夫指数...")
+
+        lyapunov_start_time = time.time()
 
         lyapunov_history = []
 
@@ -663,7 +699,8 @@ class P0Validation:
             "min": lyapunov_min,
             "mean": lyapunov_mean,
             "std": lyapunov_std,
-            "history": lyapunov_history
+            "history": lyapunov_history,
+            "timing": {"calc_time_s": time.time() - lyapunov_start_time}
         }
 
         if verbose:
