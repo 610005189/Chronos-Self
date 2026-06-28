@@ -262,6 +262,13 @@ class MetaCognitiveConfig:
     curiosity_min_exploration_rate: float = 0.01  # 最小探索率
     curiosity_decay_rate: float = 0.9  # 好奇心衰减率
     curiosity_history_window: int = 100  # 历史窗口大小
+    
+    # 元意识引擎配置（动态层级）
+    enable_meta_consciousness: bool = False  # 是否启用元意识引擎（动态层级）
+    meta_consciousness_window_time: float = 1.0  # 元意识场窗口时间 τ_M
+    meta_consciousness_emergence_threshold: float = 1.0  # 涌现阈值 M_0
+    meta_consciousness_level_spacing: float = 0.5  # 层级间距 ΔM
+    meta_consciousness_awareness_gate_threshold: float = 0.5  # 觉知梯度门控阈值 G_th
 
 
 @dataclass

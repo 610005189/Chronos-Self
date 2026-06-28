@@ -79,6 +79,7 @@ class ExperimentRecord:
     fix_notes: Optional[str] = None
     profilation_data: Optional[dict] = None
     git_commit: Optional[str] = None
+    meta_consciousness: Optional[dict] = None
 
 
 class ExperimentLog:

@@ -66,6 +66,17 @@ from chronos_core.core.meta_cognitive.competitive_emergence import (
     EmergenceIndicators,
     EmergenceStatistics,
 )
+from chronos_core.core.meta_cognitive.meta_consciousness_field import (
+    MetaConsciousnessField,
+    SelfReferentialDepth,
+)
+from chronos_core.core.meta_cognitive.awareness_gradient import (
+    AwarenessGradient,
+    LiftOperator,
+)
+from chronos_core.core.meta_cognitive.dynamic_layers import (
+    DynamicMetaCognitiveLayers,
+)
 from chronos_core.utils.config import (
     DimensionalityConfig,
     MetaCognitiveConfig,
@@ -107,6 +118,13 @@ class MetaCognitiveConfig:
     enable_emergence: bool = False               # 是否启用竞争性涌现（默认关闭）
     emergence_calculation_interval: int = 10     # 涌现计算间隔步数
     
+    # 元意识引擎配置（动态层级）
+    enable_meta_consciousness: bool = False      # 是否启用元意识引擎（动态层级）
+    meta_consciousness_window_time: float = 1.0  # 元意识场窗口时间 τ_M
+    meta_consciousness_emergence_threshold: float = 1.0  # 涌现阈值 M_0
+    meta_consciousness_level_spacing: float = 0.5  # 层级间距 ΔM
+    meta_consciousness_awareness_gate_threshold: float = 0.5  # 觉知梯度门控阈值 G_th
+    
     # 设备参数
     device: str = "cpu"
 
@@ -116,6 +134,7 @@ class MetaCognitive(nn.Module):
     递归状态监控模块
     
     整合 L0、L1、L2 三层结构，实现完整的状态监控调控功能。
+    支持可选的元意识引擎（动态层级），基于自指深度动态激活更高层级。
     
     功能：
     - 整合 L0、L1、L2 三层结构
@@ -123,12 +142,14 @@ class MetaCognitive(nn.Module):
     - 实现调控循环
     - 提供消融测试接口
     - 提供状态监测接口
+    - 可选元意识引擎（动态层级，基于自指深度 Λ(t) 动态激活层级）
     
     特性：
     - L0 仅处理感知输入
     - L1 包含完整系统状态
     - L2 高阶调控，物理隔离于 L0
     - 状态监控截断机制
+    - 元意识引擎：动态层级激活、觉知梯度门控、Lift 算子涌现
     """
     
     def __init__(
@@ -178,6 +199,9 @@ class MetaCognitive(nn.Module):
         self._emergence_config: Optional[EmergenceConfig] = None
         self._last_emergence_indicators: Optional[EmergenceIndicators] = None
         
+        # 元意识引擎（动态层级）
+        self.dynamic_layers: Optional[DynamicMetaCognitiveLayers] = None
+        
         # 系统状态缓存
         self._current_step: int = 0
         self._l0_output_cache: Optional[torch.Tensor] = None
@@ -196,6 +220,9 @@ class MetaCognitive(nn.Module):
         
         # 初始化竞争性涌现
         self._initialize_emergence()
+        
+        # 初始化元意识引擎（动态层级）
+        self._initialize_dynamic_layers()
         
         # 消融测试状态
         self._ablation_active: bool = False
@@ -333,6 +360,44 @@ class MetaCognitive(nn.Module):
             self.emergence_detector = None
             self._emergence_config = None
             logger.info("CompetitiveEmergence disabled")
+    
+    def _initialize_dynamic_layers(self):
+        """初始化元意识引擎（动态层级）"""
+        enabled = (
+            getattr(self.config, 'enable_meta_consciousness', False) or
+            getattr(self.meta_config, 'enable_meta_consciousness', False)
+        )
+        if enabled:
+            fast_dim = self.dim_config.fast_variable_dim
+            slow_dim = self.dim_config.slow_variable_dim
+            layer_dims = [fast_dim, slow_dim, max(slow_dim // 2, 32)]
+            
+            window_time = getattr(self.config, 'meta_consciousness_window_time',
+                                  getattr(self.meta_config, 'meta_consciousness_window_time', 1.0))
+            emergence_threshold = getattr(self.config, 'meta_consciousness_emergence_threshold',
+                                          getattr(self.meta_config, 'meta_consciousness_emergence_threshold', 1.0))
+            level_spacing = getattr(self.config, 'meta_consciousness_level_spacing',
+                                    getattr(self.meta_config, 'meta_consciousness_level_spacing', 0.5))
+            awareness_gate_threshold = getattr(self.config, 'meta_consciousness_awareness_gate_threshold',
+                                               getattr(self.meta_config, 'meta_consciousness_awareness_gate_threshold', 0.5))
+            
+            self.dynamic_layers = DynamicMetaCognitiveLayers(
+                layer_dims=layer_dims,
+                window_time=window_time,
+                emergence_threshold=emergence_threshold,
+                level_spacing=level_spacing,
+                awareness_gate_threshold=awareness_gate_threshold,
+                device=self.device
+            )
+            self.add_module('dynamic_layers', self.dynamic_layers)
+            logger.info(
+                f"DynamicMetaCognitiveLayers initialized: "
+                f"layer_dims={layer_dims}, "
+                f"window_time={window_time}s"
+            )
+        else:
+            self.dynamic_layers = None
+            logger.info("DynamicMetaCognitiveLayers disabled")
     
     def compute_curiosity(self, input_vector: torch.Tensor, prediction_error: Optional[float] = None) -> Optional[CuriosityMetrics]:
         """
@@ -513,6 +578,12 @@ class MetaCognitive(nn.Module):
         # 状态监测
         if self.config.state_monitoring_enabled:
             self._monitor_state()
+        
+        # 元意识引擎（动态层级）
+        if self.dynamic_layers is not None:
+            z_input = torch.cat([semantic_input, physical_input], dim=0)
+            meta_consciousness_output = self.dynamic_layers.step(z_input, dt)
+            outputs["meta_consciousness"] = meta_consciousness_output
         
         return outputs
     
@@ -739,6 +810,29 @@ class MetaCognitive(nn.Module):
         if self.emergence_detector:
             return self.emergence_detector.is_emerging()
         return False
+    
+    def get_meta_consciousness_state(self) -> Optional[Dict[str, Any]]:
+        """
+        获取元意识引擎状态
+        
+        Returns:
+            元意识状态字典，如果未启用则返回 None
+            包含：m_pre, current_depth, awareness_gradients, gate_values, layer_active
+        """
+        if self.dynamic_layers is None:
+            return None
+        
+        state = self.dynamic_layers.get_state()
+        return {
+            "m_pre": state["m_pre"],
+            "current_depth": state["current_depth"],
+            "awareness_gradients": state.get("awareness_gradients", []),
+            "gate_values": state.get("gate_values", []),
+            "layer_active": state["layer_active"],
+            "layer_states": state["layer_states"],
+            "num_layers": state["num_layers"],
+            "layer_dims": state["layer_dims"],
+        }
     
     def _monitor_state(self):
         """
@@ -1091,6 +1185,10 @@ class MetaCognitive(nn.Module):
             self.emergence_detector.reset()
         
         self._last_emergence_indicators = None
+        
+        # 重置元意识引擎（动态层级）
+        if self.dynamic_layers:
+            self.dynamic_layers.reset()
         
         # 清空缓存
         self._current_step = 0

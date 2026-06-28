@@ -107,6 +107,12 @@ class P0ValidationResult:
     alignment_max_error: float = 0.0
     alignment_avg_error: float = 0.0
 
+    # 元意识引擎指标（可选）
+    meta_consciousness_enabled: bool = False
+    m_pre_history: Optional[List[float]] = None
+    lambda_history: Optional[List[int]] = None
+    awareness_gradient_history: Optional[List[List[float]]] = None
+
     # 统计信息
     validation_time: float = 0.0
     device: str = "cpu"
@@ -114,7 +120,7 @@ class P0ValidationResult:
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
-        return {
+        result = {
             "is_passed": self.is_passed,
             "overall_score": self.overall_score,
             "open_loop": {
@@ -152,6 +158,14 @@ class P0ValidationResult:
                 "timing_breakdown": self.timing_breakdown
             }
         }
+        if self.meta_consciousness_enabled:
+            result["meta_consciousness"] = {
+                "enabled": True,
+                "m_pre_history": self.m_pre_history,
+                "lambda_history": self.lambda_history,
+                "awareness_gradient_history": self.awareness_gradient_history
+            }
+        return result
 
 
 class P0Validation:
@@ -252,6 +266,13 @@ class P0Validation:
         result.open_loop_steps_completed = open_loop_result["steps_completed"]
         result.open_loop_stability_warnings = open_loop_result["stability_warnings"]
         result.open_loop_final_state = open_loop_result["final_state"]
+
+        # 元意识引擎指标
+        result.meta_consciousness_enabled = open_loop_result.get("meta_consciousness_enabled", False)
+        if result.meta_consciousness_enabled:
+            result.m_pre_history = open_loop_result.get("m_pre_history")
+            result.lambda_history = open_loop_result.get("lambda_history")
+            result.awareness_gradient_history = open_loop_result.get("awareness_gradient_history")
 
         if not result.open_loop_passed:
             logger.warning("❌ 72小时开环运行测试失败")
@@ -413,6 +434,26 @@ class P0Validation:
         # 状态轨迹采样
         trajectory_samples = []
 
+        # 检测元意识引擎是否启用
+        meta_consciousness_enabled = False
+        meta_field = None
+        meta_depth = None
+        m_pre_history = []
+        lambda_history = []
+        awareness_gradient_history = []
+
+        meta_system = getattr(self.engine, 'meta_cognitive_system', None)
+        if meta_system is not None:
+            meta_config = getattr(self.global_config, 'meta_cognitive', None)
+            if meta_config is not None and getattr(meta_config, 'enable_meta_consciousness', False):
+                meta_consciousness_enabled = True
+                dynamic_layers = getattr(meta_system, 'dynamic_layers', None)
+                if dynamic_layers is not None:
+                    if hasattr(dynamic_layers, 'meta_field'):
+                        meta_field = dynamic_layers.meta_field
+                    if hasattr(dynamic_layers, 'self_ref_depth'):
+                        meta_depth = dynamic_layers.self_ref_depth
+
         # 运行循环
         current_state = initial_state
 
@@ -443,6 +484,20 @@ class P0Validation:
                     if self.config.save_trajectory:
                         if step_idx % self.config.trajectory_sample_interval == 0:
                             trajectory_samples.append(current_state.copy())
+
+                    # 记录元意识指标
+                    if meta_consciousness_enabled:
+                        if step_idx % self.config.trajectory_sample_interval == 0:
+                            if meta_field is not None:
+                                m_pre_history.append(meta_field.get_value())
+                            if meta_depth is not None:
+                                lambda_history.append(meta_depth.get_depth())
+                            if meta_system is not None and hasattr(meta_system, 'get_awareness_gradients'):
+                                try:
+                                    grads = meta_system.get_awareness_gradients()
+                                    awareness_gradient_history.append(grads)
+                                except Exception:
+                                    pass
 
                     # 日志：每1000步平均步时
                     elapsed = time.time() - loop_start_time
@@ -502,6 +557,10 @@ class P0Validation:
             "steps_completed": steps_completed,
             "stability_warnings": stability_warnings,
             "final_state": current_state,
+            "meta_consciousness_enabled": meta_consciousness_enabled,
+            "m_pre_history": m_pre_history if meta_consciousness_enabled else None,
+            "lambda_history": lambda_history if meta_consciousness_enabled else None,
+            "awareness_gradient_history": awareness_gradient_history if meta_consciousness_enabled else None,
             "timing": {
                 "total_time_s": time.time() - loop_start_time,
                 "steps_per_sec": steps_completed / (time.time() - loop_start_time) if (time.time() - loop_start_time) > 0 else 0.0

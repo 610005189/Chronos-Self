@@ -114,6 +114,17 @@ class ValidationResult:
     behavioral_result: Optional[BehavioralIndicators] = None
     p2_passed: bool = False
 
+    # P3级验证结果（元意识命题，占位）
+    p3_result: Optional[Dict[str, Any]] = None
+    p3_passed: bool = False
+
+    # P4级验证结果（高阶意识命题，占位）
+    p4_result: Optional[Dict[str, Any]] = None
+    p4_passed: bool = False
+
+    # 元意识引擎指标（可选）
+    meta_consciousness: Optional[Dict[str, Any]] = None
+
     # 综合判定
     overall_passed: bool = False
     overall_score: float = 0.0
@@ -128,7 +139,7 @@ class ValidationResult:
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
-        return {
+        result = {
             "validation_mode": self.validation_mode.value,
             "validation_time": self.validation_time,
             "p0": {
@@ -145,6 +156,14 @@ class ValidationResult:
                 "dynamics": self.dynamics_result.to_dict() if self.dynamics_result else None,
                 "behavioral": self.behavioral_result.to_dict() if self.behavioral_result else None
             },
+            "p3": {
+                "passed": self.p3_passed,
+                "details": self.p3_result
+            },
+            "p4": {
+                "passed": self.p4_passed,
+                "details": self.p4_result
+            },
             "overall": {
                 "passed": self.overall_passed,
                 "score": self.overall_score,
@@ -154,6 +173,9 @@ class ValidationResult:
             "experiment_id": self.experiment_id,
             "profiling_data": self.profiling_data
         }
+        if self.meta_consciousness is not None:
+            result["meta_consciousness"] = self.meta_consciousness
+        return result
 
 
 class Validation:
@@ -251,6 +273,9 @@ class Validation:
         # 记录验证时间
         result.validation_time = time.time() - self._start_time
 
+        # 收集元意识引擎指标（如果启用）
+        self._collect_meta_consciousness_metrics(result, engine)
+
         # 保存报告
         self.save_final_report(result, verbose)
 
@@ -271,6 +296,15 @@ class Validation:
                 "p1_passed": result.p1_passed,
                 "p2_passed": result.p2_passed,
             }
+            meta_consciousness_log = None
+            if result.meta_consciousness is not None:
+                mc = result.meta_consciousness
+                meta_consciousness_log = {
+                    "enabled": mc.get("enabled", False),
+                    "m_pre_final": mc.get("m_pre_final", 0.0),
+                    "lambda_final": mc.get("lambda_final", 0),
+                    "awareness_gradients_final": mc.get("awareness_gradients_final"),
+                }
             record = ExperimentRecord(
                 experiment_id=result.experiment_id,
                 timestamp=datetime.now(timezone.utc).isoformat(),
@@ -279,6 +313,7 @@ class Validation:
                 metrics=metrics,
                 profilation_data=result.profiling_data,
                 git_commit=None,
+                meta_consciousness=meta_consciousness_log,
             )
             ExperimentLog().append(record)
         except Exception as exc:
@@ -781,6 +816,151 @@ class Validation:
             )
 
         return p1_result
+
+    def _collect_meta_consciousness_metrics(
+        self,
+        result: ValidationResult,
+        engine: IntegrationEngine
+    ) -> None:
+        """
+        收集元意识引擎指标（如果启用）
+
+        从 P0 验证结果或引擎中提取元意识相关指标，
+        统一存入 ValidationResult 的 meta_consciousness 字段。
+
+        Args:
+            result: 验证结果对象
+            engine: IntegrationEngine实例
+        """
+        meta_consciousness_data = {}
+
+        # 优先从 P0 验证结果中提取
+        if result.p0_result is not None and result.p0_result.meta_consciousness_enabled:
+            p0 = result.p0_result
+            meta_consciousness_data = {
+                "enabled": True,
+                "m_pre_final": p0.m_pre_history[-1] if p0.m_pre_history else 0.0,
+                "lambda_final": p0.lambda_history[-1] if p0.lambda_history else 0,
+                "m_pre_history": p0.m_pre_history,
+                "lambda_history": p0.lambda_history,
+                "awareness_gradient_history": p0.awareness_gradient_history,
+                "awareness_gradients_final": (
+                    p0.awareness_gradient_history[-1]
+                    if p0.awareness_gradient_history else None
+                ),
+            }
+        else:
+            # 尝试直接从引擎检测
+            meta_system = getattr(engine, 'meta_cognitive_system', None)
+            if meta_system is not None:
+                meta_config = getattr(self.global_config, 'meta_cognitive', None)
+                if meta_config is not None and getattr(meta_config, 'enable_meta_consciousness', False):
+                    m_pre = 0.0
+                    lambda_val = 0
+                    awareness_gradients = None
+
+                    dynamic_layers = getattr(meta_system, 'dynamic_layers', None)
+                    if dynamic_layers is not None:
+                        if hasattr(dynamic_layers, 'meta_field'):
+                            field = dynamic_layers.meta_field
+                            if hasattr(field, 'get_value'):
+                                m_pre = field.get_value()
+
+                        if hasattr(dynamic_layers, 'self_ref_depth'):
+                            depth = dynamic_layers.self_ref_depth
+                            if hasattr(depth, 'get_depth'):
+                                lambda_val = depth.get_depth()
+
+                        if hasattr(dynamic_layers, 'get_state'):
+                            try:
+                                state = dynamic_layers.get_state()
+                                awareness_gradients = state.get('awareness_gradients')
+                            except Exception:
+                                pass
+
+                    meta_consciousness_data = {
+                        "enabled": True,
+                        "m_pre_final": m_pre,
+                        "lambda_final": lambda_val,
+                        "awareness_gradients_final": awareness_gradients,
+                    }
+
+        if meta_consciousness_data:
+            result.meta_consciousness = meta_consciousness_data
+
+    def _run_p3_validation(
+        self,
+        engine: IntegrationEngine,
+        verbose: bool = True
+    ) -> Dict[str, Any]:
+        """
+        P3级验证（元意识命题验证）- 占位方法
+
+        验证元意识引擎的核心命题：
+        - 元意识场 M_pre(t) 动力学稳定性
+        - 自指深度 Λ(t) 涌现单调性
+        - 觉知梯度层级有效性
+
+        Args:
+            engine: IntegrationEngine实例
+            verbose: 详细日志
+
+        Returns:
+            P3级验证结果字典
+        """
+        if verbose:
+            logger.info("  P3级验证（元意识命题验证）- 占位，待实现")
+
+        p3_result = {
+            "passed": False,
+            "implemented": False,
+            "description": "P3级元意识命题验证待实现",
+            "propositions": {
+                "meta_consciousness_field_stability": None,
+                "self_referential_depth_monotonicity": None,
+                "awareness_gradient_hierarchy": None,
+            },
+            "metrics": {}
+        }
+
+        return p3_result
+
+    def _run_p4_validation(
+        self,
+        engine: IntegrationEngine,
+        verbose: bool = True
+    ) -> Dict[str, Any]:
+        """
+        P4级验证（高阶意识命题验证）- 占位方法
+
+        验证高阶意识相关命题：
+        - 自我觉知连续性
+        - 内省元认知能力
+        - 现象学主观体验相关指标
+
+        Args:
+            engine: IntegrationEngine实例
+            verbose: 详细日志
+
+        Returns:
+            P4级验证结果字典
+        """
+        if verbose:
+            logger.info("  P4级验证（高阶意识命题验证）- 占位，待实现")
+
+        p4_result = {
+            "passed": False,
+            "implemented": False,
+            "description": "P4级高阶意识命题验证待实现",
+            "propositions": {
+                "self_awareness_continuity": None,
+                "introspective_metacognition": None,
+                "phenomenal_experience": None,
+            },
+            "metrics": {}
+        }
+
+        return p4_result
 
     def _validate_dmn(self, engine: IntegrationEngine, verbose: bool) -> Dict[str, Any]:
         """
