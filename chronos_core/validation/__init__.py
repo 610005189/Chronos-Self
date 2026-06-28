@@ -25,7 +25,7 @@ This module implements comprehensive validation and pattern detection systems:
 - Validation: Complete validation module integration
 
 **Validation Criteria:**
-- Dynamics indicators: ρ(τ) > 0.3, λ_max ∈ (0, 0.1), E_self ∈ [ε_min, ε_max]
+- Dynamics indicators: rho(tau) > 0.3, lambda_max in (0, 0.1), E_self in [eps_min, eps_max]
 - Behavioral indicators: Intent entropy transition, transfer rate transition, S-shaped recovery
 - Pattern detection: 3 dynamics indicators + 2 behavioral indicators
 
