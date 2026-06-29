@@ -48,6 +48,8 @@ class FastDynamicsConfig:
 
     # 动力学参数
     decay_rate: float = 0.85  # 自然衰减率（大幅提高以增强稳定性）
+    damping_coeff: float = 0.0  # 显式阻尼系数（方案B）
+    dynamics_scale: float = 1.0  # 演化函数输出缩放因子（方案C：直接控制混沌强度）
     noise_scale: float = 0.00001  # 内部噪声强度（大幅降低以减少扰动）
 
     # 稳定性参数
@@ -579,6 +581,9 @@ class FastDynamicsFunction(DynamicsFunction):
         # 计算演化函数输出（非线性部分）
         F_output = self.evolution_fn(input_vector)
 
+        # 方案C：缩放演化函数输出以控制混沌强度
+        F_output = F_output * self.config.dynamics_scale
+
         # 计算衰减项（线性部分）
         decay_output = self.decay_layer(y)
 
@@ -597,6 +602,10 @@ class FastDynamicsFunction(DynamicsFunction):
         )
         extra_decay_factor = torch.clamp(extra_decay_factor, min=0.0, max=2.0)
         dydt = dydt - extra_decay_factor * y
+
+        # 添加额外阻尼项（方案B：显式阻尼）
+        if hasattr(self.config, 'damping_coeff') and self.config.damping_coeff > 0:
+            dydt = dydt - self.config.damping_coeff * y
 
         # 添加内部噪声（可选）
         if self.config.noise_scale > 0:

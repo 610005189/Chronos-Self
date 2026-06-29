@@ -218,7 +218,7 @@ def main():
     output_dir = Path("validation_results")
     output_dir.mkdir(exist_ok=True)
     
-    with open(output_dir / "p1_report.json", 'w') as f:
+    with open(output_dir / "p1_report.json", 'w', encoding='utf-8') as f:
         json.dump(report, f, indent=2)
     
     print(f"\nReport saved to validation_results/p1_report.json")
