@@ -89,39 +89,39 @@ class StateParameters:
 # 预定义状态参数配置
 STATE_PARAMS_CONFIG: Dict[StateMode, StateParameters] = {
     StateMode.REST: StateParameters(
-        decay_rate=0.90,  # 高衰减，快速稳定
-        gamma=0.8,  # 强耗散，确保稳定性
-        dynamics_scale=0.5,  # 低动力学强度
+        decay_rate=0.95,  # 高衰减，快速稳定
+        gamma=0.28,  # 强耗散，确保稳定性（λ_max < 0）
+        dynamics_scale=0.3,  # 低动力学强度
         noise_scale=0.000001,  # 极低噪声
         ei_ratio=4.0,
-        alpha=0.15,  # 较强抑制反馈
+        alpha=0.2,  # 较强抑制反馈
         e_target=0.0,
         state_norm_threshold=50.0,  # 低阈值，快速收敛
         max_gradient_norm=5.0,  # 低梯度上限
     ),
     
     StateMode.WORK: StateParameters(
-        decay_rate=0.85,  # 默认衰减
-        gamma=0.5,  # 平衡耗散
-        dynamics_scale=1.0,  # 默认动力学强度
+        decay_rate=0.90,  # 中等衰减
+        gamma=0.21,  # 边缘混沌耗散（目标: λ_max ∈ (0, 0.1)）
+        dynamics_scale=0.8,  # 中等动力学强度
         noise_scale=0.00001,  # 默认噪声
         ei_ratio=4.0,
-        alpha=0.1,  # 默认抑制反馈
+        alpha=0.12,  # 适度抑制反馈
         e_target=0.0,
         state_norm_threshold=100.0,  # 默认阈值
-        max_gradient_norm=10.0,  # 默认梯度上限
+        max_gradient_norm=8.0,  # 中等梯度上限
     ),
     
     StateMode.EXPLORE: StateParameters(
-        decay_rate=0.75,  # 低衰减，保持活跃
-        gamma=0.3,  # 弱耗散，允许波动
-        dynamics_scale=1.5,  # 高动力学强度
+        decay_rate=0.85,  # 低衰减，保持活跃
+        gamma=0.18,  # 较弱耗散，允许更大波动（λ_max ∈ (0, 0.2)）
+        dynamics_scale=1.0,  # 较高动力学强度
         noise_scale=0.00005,  # 较高噪声，增强探索
         ei_ratio=4.0,
-        alpha=0.05,  # 弱抑制反馈，允许更大变化
+        alpha=0.08,  # 弱抑制反馈，允许更大变化
         e_target=0.0,
         state_norm_threshold=150.0,  # 高阈值，允许更大范围
-        max_gradient_norm=20.0,  # 高梯度上限
+        max_gradient_norm=12.0,  # 较高梯度上限
     ),
 }
 

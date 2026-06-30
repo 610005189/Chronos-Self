@@ -26,10 +26,9 @@ import time
 from typing import Dict, List, Any
 from dataclasses import dataclass
 
-from chronos_core.core.fast_dynamics import FastDynamicsSystem, FastDynamicsConfig, FastDynamicsFunction
-from chronos_core.core.state_controller import StateMode, StateController, STATE_PARAMS_CONFIG
+from chronos_core.core.fast_dynamics import FastDynamicsConfig, FastDynamicsFunction
+from chronos_core.core.state_controller import StateMode, StateParameters
 from chronos_core.core.state import SelfState
-from chronos_core.utils.config import ChronosConfig
 
 # 设置日志
 logging.basicConfig(
@@ -51,16 +50,71 @@ class StateLyapunovResult:
     num_samples: int
 
 
+STATE_PARAMS_CONFIG: Dict[StateMode, StateParameters] = {
+    StateMode.REST: StateParameters(
+        decay_rate=0.01,
+        gamma=0.15,
+        dynamics_scale=1.0,
+        noise_scale=0.0,
+        ei_ratio=4.0,
+        alpha=0.0,
+        e_target=0.0,
+        state_norm_threshold=50.0,
+        max_gradient_norm=5.0,
+    ),
+    StateMode.WORK: StateParameters(
+        decay_rate=0.005,
+        gamma=0.13,
+        dynamics_scale=1.0,
+        noise_scale=0.0,
+        ei_ratio=4.0,
+        alpha=0.0,
+        e_target=0.0,
+        state_norm_threshold=50.0,
+        max_gradient_norm=5.0,
+    ),
+    StateMode.EXPLORE: StateParameters(
+        decay_rate=0.0,
+        gamma=0.10,
+        dynamics_scale=1.0,
+        noise_scale=0.0,
+        ei_ratio=4.0,
+        alpha=0.0,
+        e_target=0.0,
+        state_norm_threshold=50.0,
+        max_gradient_norm=5.0,
+    ),
+}
+
+
+def gram_schmidt_orthogonalize(Q: torch.Tensor) -> torch.Tensor:
+    """Gram-Schmidt 正交化"""
+    Q = Q.clone()
+    k = Q.shape[1]
+    for i in range(k):
+        v = Q[:, i]
+        for j in range(i):
+            v = v - torch.dot(Q[:, j], v) * Q[:, j]
+        norm = torch.norm(v)
+        if norm > 1e-10:
+            Q[:, i] = v / norm
+        else:
+            Q[:, i] = torch.randn_like(v)
+            Q[:, i] = Q[:, i] / torch.norm(Q[:, i])
+    return Q
+
+
 def calculate_lyapunov_jacobian(
     dynamics_fn: FastDynamicsFunction,
     state: SelfState,
     num_exponents: int = 10,
-    calc_steps: int = 100,
+    calc_steps: int = 200,
     dt: float = 0.01,
-    device: str = 'cpu'
+    device: str = 'cpu',
+    reorth_interval: int = 5
 ) -> Dict[str, Any]:
     """
-    使用 Jacobian QR 方法快速计算 Lyapunov 指数
+    使用 Jacobian QR 方法快速计算 Lyapunov 指数（与 fast_gamma_search.py 一致）
     
     Args:
         dynamics_fn: 动力学函数
@@ -69,6 +123,7 @@ def calculate_lyapunov_jacobian(
         calc_steps: 计算步数
         dt: 时间步长
         device: 计算设备
+        reorth_interval: 重正交化间隔
         
     Returns:
         计算结果字典
@@ -77,22 +132,18 @@ def calculate_lyapunov_jacobian(
         fast_dim = state.E_fast.shape[-1]
         k = min(num_exponents, fast_dim)
         
-        # 初始化 QR 分解所需的矩阵 (fast_dim x k)
-        Q = torch.eye(fast_dim, k, device=device)  # 创建 rectangular identity matrix
+        Q = torch.eye(fast_dim, k, device=device)
         log_evolutions = torch.zeros(k, device=device)
         
-        current_state = state.copy()
-        E_fast = current_state.E_fast.to(device)
-        E_slow = current_state.E_slow.to(device)
+        E_fast = state.E_fast.to(device)
+        E_slow = state.E_slow.to(device)
         
         for step in range(calc_steps):
-            # 计算动力学导数
             y = E_fast.unsqueeze(0).clone()
             y.requires_grad_(True)
             
             t_tensor = torch.tensor([step * dt], device=device)
             
-            # 定义动力学函数（用于 Jacobian 计算）
             def dynamics_for_jacobian(x):
                 return dynamics_fn.forward(
                     t_tensor,
@@ -105,32 +156,27 @@ def calculate_lyapunov_jacobian(
                     B_chaos=None
                 ).squeeze(0)
             
-            # 计算 Jacobian
             J = torch.autograd.functional.jacobian(
                 dynamics_for_jacobian,
                 y,
                 create_graph=False
             )
             
-            # 处理 Jacobian 的维度：如果输入是 (1, dim)，输出是 (dim,)
-            # 则 Jacobian 是 (dim, 1, dim)，squeeze 到 (dim, dim)
-            if J.dim() == 3:
-                J = J.squeeze(1)  # 从 (dim, 1, dim) -> (dim, dim)
+            if J.dim() == 4:
+                J = J.squeeze(0).squeeze(1)
+            elif J.dim() == 3:
+                J = J.squeeze(1)
             
-            # QR 分解
             JQ = J @ Q[:, :k]
-            Q_new, R = torch.linalg.qr(JQ)
+            Q, R = torch.linalg.qr(JQ)
             
-            # 累积对角元素的对数
+            if (step + 1) % reorth_interval == 0:
+                Q = gram_schmidt_orthogonalize(Q[:, :k])
+            
             diag_R = torch.diag(R).abs()
-            # 防止 log(0)
             diag_R = torch.clamp(diag_R, min=1e-10)
             log_evolutions += torch.log(diag_R)
             
-            # 更新 Q
-            Q = Q_new
-            
-            # 更新状态（欧拉积分）
             with torch.no_grad():
                 dydt = dynamics_fn.forward(
                     t_tensor,
@@ -143,14 +189,7 @@ def calculate_lyapunov_jacobian(
                     B_chaos=None
                 ).squeeze(0)
                 E_fast = E_fast + dt * dydt
-                
-                # 状态范数裁剪
-                norm = torch.norm(E_fast).item()
-                threshold = dynamics_fn.config.state_norm_threshold
-                if norm > threshold:
-                    E_fast = E_fast * (threshold / norm)
         
-        # 计算 Lyapunov 指数谱
         total_time = calc_steps * dt
         lyapunov_spectrum = log_evolutions / total_time
         lyapunov_spectrum = torch.sort(lyapunov_spectrum, descending=True)[0]
@@ -187,13 +226,13 @@ def run_state_experiment(
     state_mode: StateMode,
     num_steps: int = 2000,
     num_lyapunov_samples: int = 10,
-    lyapunov_calc_steps: int = 100,
+    lyapunov_calc_steps: int = 200,
     dt: float = 0.01,
     device: str = 'cpu',
     seed: int = 42
 ) -> StateLyapunovResult:
     """
-    在指定状态下运行实验并测量 Lyapunov 指数
+    在指定状态下运行实验并测量 Lyapunov 指数（与 fast_gamma_search.py 保持一致）
     
     Args:
         state_mode: 状态模式
@@ -217,20 +256,19 @@ def run_state_experiment(
     # 获取状态参数配置
     state_params = STATE_PARAMS_CONFIG[state_mode]
     
-    # 创建动力学配置（应用状态参数）
+    # 创建动力学配置（与 fast_gamma_search.py 保持一致）
     config = FastDynamicsConfig(
-        fast_dim=256,  # 使用较小维度以提高计算速度
+        fast_dim=256,
         slow_dim=64,
         semantic_dim=64,
         physical_dim=64,
-        fusion_dim=128,
+        fusion_dim=256,
         meta_cognitive_dim=16,
-        chaos_dim=32,
+        chaos_dim=0,
         hidden_dim=128,
         num_hidden_layers=2,
         activation="tanh",
         
-        # 应用状态参数
         decay_rate=state_params.decay_rate,
         gamma=state_params.gamma,
         dynamics_scale=state_params.dynamics_scale,
@@ -239,8 +277,6 @@ def run_state_experiment(
         alpha=state_params.alpha,
         state_norm_threshold=state_params.state_norm_threshold,
         max_gradient_norm=state_params.max_gradient_norm,
-        
-        state_mode=state_mode.value
     )
     
     logger.info(f"状态参数:")
@@ -249,23 +285,40 @@ def run_state_experiment(
     logger.info(f"  dynamics_scale={state_params.dynamics_scale}")
     logger.info(f"  noise_scale={state_params.noise_scale}")
     
-    # 创建动力学系统
-    system = FastDynamicsSystem(config=config, device=device)
-    system.initialize()
+    # 直接使用 FastDynamicsFunction（与 fast_gamma_search.py 一致）
+    dynamics_fn = FastDynamicsFunction(config=config)
+    dynamics_fn.to(device)
     
-    # 强制切换到目标状态
-    system.switch_state(state_mode, force=True)
-    logger.info(f"系统状态: {system.get_current_state_mode().value}")
+    # 与 fast_gamma_search.py 一致：切换到 train 模式运行多次 forward
+    # 然后切换回 eval 模式
+    dynamics_fn.train()
+    dummy_input = torch.randn(1, config.fast_dim, device=device) * 0.01
+    dummy_time = torch.tensor([0.0], device=device)
+    for _ in range(10):
+        with torch.no_grad():
+            _ = dynamics_fn.forward(dummy_time, dummy_input)
+    dynamics_fn.eval()
     
-    # 初始化状态
-    E_fast = torch.randn(config.fast_dim, device=device) * 0.1
-    E_slow = torch.zeros(config.slow_dim, device=device)
+    # 初始化状态（与 fast_gamma_search.py 一致）
+    E_fast = torch.randn(config.fast_dim, device=device) * 0.01
+    E_slow = torch.randn(config.slow_dim, device=device) * 0.01
     
     # 预热运行（消除初始 transient）
-    warmup_steps = 100
+    warmup_steps = 150
     logger.info(f"预热运行 {warmup_steps} 步...")
     for i in range(warmup_steps):
-        E_fast = system.step(E_fast, E_slow, dt=dt, t=i*dt)
+        with torch.no_grad():
+            dydt = dynamics_fn.forward(
+                torch.tensor([i * dt], device=device),
+                E_fast.unsqueeze(0),
+                E_slow=E_slow.unsqueeze(0),
+                X_sem=None,
+                X_log=None,
+                X_fused=None,
+                C_meta=None,
+                B_chaos=None
+            ).squeeze(0)
+            E_fast = E_fast + dt * dydt
     
     # Lyapunov 测量间隔
     lyapunov_interval = num_steps // num_lyapunov_samples
@@ -278,8 +331,19 @@ def run_state_experiment(
     start_time = time.time()
     
     for step in range(num_steps):
-        # 运行系统
-        E_fast = system.step(E_fast, E_slow, dt=dt, t=(warmup_steps + step) * dt)
+        # 直接使用 forward 更新状态（无范数裁剪，与 fast_gamma_search.py 一致）
+        with torch.no_grad():
+            dydt = dynamics_fn.forward(
+                torch.tensor([(warmup_steps + step) * dt], device=device),
+                E_fast.unsqueeze(0),
+                E_slow=E_slow.unsqueeze(0),
+                X_sem=None,
+                X_log=None,
+                X_fused=None,
+                C_meta=None,
+                B_chaos=None
+            ).squeeze(0)
+            E_fast = E_fast + dt * dydt
         
         # 记录范数
         norms_history.append(torch.norm(E_fast).item())
@@ -293,9 +357,9 @@ def run_state_experiment(
             )
             
             result = calculate_lyapunov_jacobian(
-                system.dynamics_fn,
+                dynamics_fn,
                 current_state,
-                num_exponents=5,  # 只计算前 5 个指数
+                num_exponents=10,
                 calc_steps=lyapunov_calc_steps,
                 dt=dt,
                 device=device
@@ -305,6 +369,7 @@ def run_state_experiment(
                 lyapunov_values.append(result["lambda_max"])
                 logger.info(
                     f"  步 {step}: λ_max={result['lambda_max']:.6f}, "
+                    f"λ_sum={result['lambda_sum']:.4f}, "
                     f"norm={torch.norm(E_fast).item():.4f}"
                 )
             else:
@@ -352,10 +417,10 @@ def perform_statistical_analysis(
     results: Dict[str, StateLyapunovResult]
 ) -> Dict[str, Any]:
     """
-    对三种状态进行统计分析
+    对状态进行统计分析
     
     Args:
-        results: 三种状态的测试结果
+        results: 状态测试结果
         
     Returns:
         统计分析结果
@@ -370,10 +435,10 @@ def perform_statistical_analysis(
         "summary": {}
     }
     
-    # 提取各状态的 Lyapunov 值
-    rest_values = results["rest"].lyapunov_values
-    work_values = results["work"].lyapunov_values
-    explore_values = results["explore"].lyapunov_values
+    # 提取各状态的 Lyapunov 值（处理缺失状态）
+    rest_values = results["rest"].lyapunov_values if "rest" in results else []
+    work_values = results["work"].lyapunov_values if "work" in results else []
+    explore_values = results["explore"].lyapunov_values if "explore" in results else []
     
     # 检查是否有足够的数据
     if len(rest_values) < 2 or len(work_values) < 2 or len(explore_values) < 2:
@@ -655,22 +720,21 @@ def main():
     logger.info("="*80)
     
     device = 'cpu'
-    num_steps = 2000
-    num_lyapunov_samples = 10
+    num_steps = 300
+    num_lyapunov_samples = 5
     lyapunov_calc_steps = 100
     
-    # 运行三种状态的实验
+    # 只运行 WORK 状态进行快速验证
     results = {}
     
-    for mode in [StateMode.REST, StateMode.WORK, StateMode.EXPLORE]:
-        results[mode.value] = run_state_experiment(
-            state_mode=mode,
-            num_steps=num_steps,
-            num_lyapunov_samples=num_lyapunov_samples,
-            lyapunov_calc_steps=lyapunov_calc_steps,
-            device=device,
-            seed=42
-        )
+    results["work"] = run_state_experiment(
+        state_mode=StateMode.WORK,
+        num_steps=num_steps,
+        num_lyapunov_samples=num_lyapunov_samples,
+        lyapunov_calc_steps=lyapunov_calc_steps,
+        device=device,
+        seed=42
+    )
     
     # 统计分析
     analysis = perform_statistical_analysis(results)

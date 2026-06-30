@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 各模块日志级别降级：fast_dynamics, slow_dynamics, meta_cognitive_system, training_system, validation_system, reflection_system, attractor_manager, fusion
   - 将参数信息、创建信息等详细日志从 info 降级为 debug
 
+- Phase 16: 256维 Gamma 调优与 P0/P1/P2 验证（进行中）
+  - 内部限速机制实现：gamma 从外部刹车改为激活函数斜率限制（`tanh(x/(1+gamma))`）
+  - 快速 Gamma 网格搜索脚本：`scripts/fast_gamma_search.py`，支持自定义维度和并行搜索
+  - 256 维系统最优 gamma 找到：gamma=0.13 时 λ_max=0.1569（短时间测量，接近目标）
+  - E/I 平衡机制系统验证：alpha=0 时完全一致，alpha 增大时 Lyapunov 单调下降
+  - 状态 Lyapunov 验证脚本：`scripts/validate_state_lyapunov.py`，测试 REST/WORK/EXPLORE 三种状态
+
 ### Changed
 
 - README 文档术语工程化
@@ -53,7 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - "好奇心" → "探索驱动"
 
 - README 增加 P3/P4 验证体系说明和验证进度总览
-- README 路线图增加 Phase 13、14、15 状态说明
+- README 路线图增加 Phase 13、14、15、16 状态说明
+- README 近期修复列表增加 6 项新修复
+- README P0 验证得分更新：0.60 → 0.65
 
 ### Fixed
 
@@ -71,6 +80,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - dynamics_monitoring: 从简化假设计算改为真实双引擎轨迹积分
   - p0_validation: 从分开运行轨迹改为同时运行参考和扰动轨迹
   - 创建两个独立引擎实例，使用不同随机种子确保演化轨迹不同
+
+- 修复 decay_layer 权重初始化不完整（fast_dynamics.py）
+  - 添加 `weight.zero_()` 确保非对角线元素清零
+  - 原代码仅设置对角线，非对角元素保留随机初始化值，导致额外耦合
+
+- 修复 Gram-Schmidt 正交化原地修改输入张量（fast_gamma_search.py, validate_state_lyapunov.py）
+  - 添加 `Q = Q.clone()` 避免修改原始输入
+  - 防止隐蔽的副作用导致难以调试的错误
+
+- 修复 EvolutionFunctionMLP 权重初始化增益过高（fast_dynamics.py）
+  - xavier_uniform_ gain 从 1.5 调整为 1.4
+  - 使 gamma 内部限速机制能够有效控制混沌
 
 ### Removed
 

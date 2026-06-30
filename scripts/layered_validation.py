@@ -306,8 +306,13 @@ def run_fast_real_validation(params: TuningParams, fast_dim=128, seed=42) -> Val
         if hasattr(engine, 'fast_dynamics') and engine.fast_dynamics:
             dyn_fn = engine.fast_dynamics.dynamics_fn
             if dyn_fn:
-                if hasattr(dyn_fn, 'decay_layer') and hasattr(dyn_fn.decay_layer, 'weight_orig'):
-                    torch.nn.init.constant_(dyn_fn.decay_layer.weight_orig, -params.decay_rate)
+                if hasattr(dyn_fn, 'decay_layer'):
+                    if hasattr(dyn_fn.decay_layer, 'weight_u'):
+                        dyn_fn.decay_layer = nn.utils.remove_spectral_norm(dyn_fn.decay_layer)
+                    # 设置为对角矩阵（每个维度只受自身衰减影响）
+                    with torch.no_grad():
+                        dyn_fn.decay_layer.weight.zero_()
+                        dyn_fn.decay_layer.weight.diagonal().fill_(-params.decay_rate)
                 if hasattr(dyn_fn.config, 'max_gradient_norm'):
                     dyn_fn.config.max_gradient_norm = params.max_grad_norm
                 if not hasattr(dyn_fn.config, 'damping_coeff'):

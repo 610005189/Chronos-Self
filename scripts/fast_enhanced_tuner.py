@@ -158,7 +158,10 @@ def apply_enhanced_params(
                 if hasattr(dyn_fn.decay_layer, 'weight_u'):
                     dyn_fn.decay_layer = nn.utils.remove_spectral_norm(dyn_fn.decay_layer)
                 
-                nn.init.constant_(dyn_fn.decay_layer.weight, -params.decay_rate)
+                # 设置为对角矩阵（每个维度只受自身衰减影响）
+                with torch.no_grad():
+                    dyn_fn.decay_layer.weight.zero_()
+                    dyn_fn.decay_layer.weight.diagonal().fill_(-params.decay_rate)
                 dyn_fn.decay_layer.bias = None
 
 

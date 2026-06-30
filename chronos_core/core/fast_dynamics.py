@@ -15,7 +15,7 @@
 
 import torch
 import torch.nn as nn
-from typing import Optional, Dict, Tuple, Union
+from typing import Optional, Dict, Tuple, Union, List
 import logging
 from dataclasses import dataclass, field
 import math
@@ -90,10 +90,12 @@ class EvolutionFunctionMLP(nn.Module):
 
     使用多层感知机实现非线性演化。
 
-    支持内部限速机制：
-        - gamma 参数控制每层激活后的缩放因子
-        - W_effective = W / (1 + gamma) 的等效效果
-        - 使 gamma 的剂量-响应关系连续可预测
+    支持两种限速机制：
+        1. 激活函数斜率限制（方案B）：scaled_tanh(x) = tanh(x/(1+gamma))
+        2. 逐层谱约束（方案C）：每层权重谱范数约束到 target_spectral_norm
+
+    方案C确保每层的 Lipschitz 常数 ≤ target_spectral_norm，
+    解决全局 gamma 缩放无法均匀控制各层谱范数的问题。
     """
 
     def __init__(
@@ -102,7 +104,8 @@ class EvolutionFunctionMLP(nn.Module):
         output_dim: int,
         hidden_dim: int = 1024,
         num_hidden_layers: int = 4,
-        activation: str = "tanh"
+        activation: str = "tanh",
+        target_spectral_norm: float = 1.0
     ):
         """
         初始化 MLP 演化函数
@@ -113,6 +116,7 @@ class EvolutionFunctionMLP(nn.Module):
             hidden_dim: 隐藏层维度
             num_hidden_layers: 隐藏层数量
             activation: 激活函数类型
+            target_spectral_norm: 目标谱范数（默认1.0，确保每层Lipschitz≤1）
         """
         super().__init__()
 
@@ -120,6 +124,7 @@ class EvolutionFunctionMLP(nn.Module):
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim
         self.num_hidden_layers = num_hidden_layers
+        self.target_spectral_norm = target_spectral_norm
 
         # 激活函数选择
         if activation == "relu":
@@ -136,8 +141,6 @@ class EvolutionFunctionMLP(nn.Module):
         self.activation = act_fn
 
         # 分离线性层和激活层（便于在 forward 中插入缩放）
-        # 不使用谱归一化，因为需要允许 MLP 有较高的 Lipschitz 产生混沌
-        # gamma 内部限速机制将控制混沌强度
         self.linear_layers = nn.ModuleList()
 
         # 输入层
@@ -150,34 +153,140 @@ class EvolutionFunctionMLP(nn.Module):
         # 输出层（不使用激活函数，允许正负输出）
         self.linear_layers.append(nn.Linear(hidden_dim, output_dim))
 
-        # gamma 参数（内部限速系数）
-        # gamma = 0 时无缩放，gamma > 0 时每层输出乘以 1/(1+gamma)
+        # gamma 参数（激活函数斜率限制系数）
+        # gamma = 0 时无缩放，gamma > 0 时激活函数斜率上限为 1/(1+gamma)
         self.gamma = 0.0
+
+        # 逐层谱约束缩放因子（缓存）
+        # layer_scale[i] = 1.0 / spectral_norm_i if spectral_norm_i > target else 1.0
+        self.layer_scales: Optional[List[float]] = None
 
         # 初始化权重
         self._init_weights()
 
+        # 计算每层谱范数并生成缩放因子
+        self._compute_layer_scales()
+
         logger.debug(
             f"EvolutionFunctionMLP created: input_dim={input_dim}, "
             f"output_dim={output_dim}, hidden_dim={hidden_dim}, "
-            f"layers={num_hidden_layers}"
+            f"layers={num_hidden_layers}, target_spectral_norm={target_spectral_norm}"
         )
 
     def _init_weights(self):
         """初始化网络权重"""
         for layer in self.linear_layers:
             if isinstance(layer, nn.Linear):
-                nn.init.xavier_uniform_(layer.weight, gain=1.5)
+                nn.init.xavier_uniform_(layer.weight, gain=1.4)
                 if hasattr(layer, 'bias') and layer.bias is not None:
                     nn.init.constant_(layer.bias, 0.001)
 
+    def _compute_layer_scales(self):
+        """
+        计算每层权重矩阵的谱范数并生成缩放因子
+        
+        使用幂迭代法估计谱范数，然后生成缩放因子：
+        - 如果谱范数 > target_spectral_norm，缩放因子 = target / spectral_norm
+        - 否则，缩放因子 = 1.0（不缩放）
+        
+        缩放因子缓存到 self.layer_scales，在 forward 中应用。
+        """
+        self.layer_scales = []
+        
+        for i, layer in enumerate(self.linear_layers):
+            if isinstance(layer, nn.Linear):
+                # 使用幂迭代法估计谱范数（增加迭代次数提高精度）
+                weight = layer.weight.data
+                spectral_norm = self._power_iteration_spectral_norm(weight, num_iterations=20)
+                
+                # 计算缩放因子：约束谱范数到目标值（加小容差）
+                tolerance = 1e-4
+                if spectral_norm > self.target_spectral_norm - tolerance:
+                    # 确保缩放后谱范数 <= target
+                    scale = self.target_spectral_norm / (spectral_norm + 1e-6)
+                else:
+                    scale = 1.0
+                
+                self.layer_scales.append(scale)
+                
+                # 直接对权重应用缩放（原地修改）
+                with torch.no_grad():
+                    layer.weight.data *= scale
+                
+                # 验证缩放后的谱范数
+                scaled_norm = self._power_iteration_spectral_norm(layer.weight.data, num_iterations=10)
+                
+                logger.debug(
+                    f"Layer {i}: original_norm={spectral_norm:.4f}, "
+                    f"scale={scale:.4f}, scaled_norm={scaled_norm:.4f}"
+                )
+        
+        # 计算总 Lipschitz 上限（所有层谱范数的乘积 * 激活函数斜率上限）
+        total_lipschitz = 1.0
+        for scale in self.layer_scales:
+            total_lipschitz *= self.target_spectral_norm  # 缩放后谱范数≤target
+        
+        # 激活函数斜率上限（tanh 最大斜率为1）
+        # 如果 gamma > 0，斜率上限为 1/(1+gamma)
+        act_slope_limit = 1.0 / (1.0 + self.gamma) if self.gamma > 0 else 1.0
+        num_act_layers = len(self.linear_layers) - 1  # 输出层无激活
+        total_lipschitz *= act_slope_limit ** num_act_layers
+        
+        logger.info(
+            f"Layer spectral constraints applied: total_Lipschitz≈{total_lipschitz:.4f}, "
+            f"num_layers={len(self.linear_layers)}, target_spectral_norm={self.target_spectral_norm}"
+        )
+
+    def _power_iteration_spectral_norm(self, weight: torch.Tensor, num_iterations: int = 5) -> float:
+        """
+        使用幂迭代法估计权重矩阵的谱范数（最大奇异值）
+        
+        Args:
+            weight: 权重矩阵 (out_features, in_features)
+            num_iterations: 幂迭代次数
+            
+        Returns:
+            估计的谱范数
+        """
+        # 初始化随机向量
+        v = torch.randn(weight.shape[1], device=weight.device)
+        v = v / torch.norm(v)
+        
+        for _ in range(num_iterations):
+            # v -> u: W @ v
+            u = weight @ v
+            u_norm = torch.norm(u)
+            if u_norm < 1e-10:
+                return 0.0
+            u = u / u_norm
+            
+            # u -> v: W.T @ u
+            v = weight.t() @ u
+            v_norm = torch.norm(v)
+            if v_norm < 1e-10:
+                return 0.0
+            v = v / v_norm
+        
+        # 谱范数 = ||W @ v|| = ||W.T @ u||
+        spectral_norm = torch.norm(weight @ v).item()
+        return spectral_norm
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        计算输出（支持内部限速机制）
+        计算输出（支持两种限速机制）
 
-        使用方案B：激活函数斜率限制
-        scaled_tanh(x) = tanh(x / (1 + gamma))
-        这限制了激活函数的有效斜率，从而控制整个网络的扩张率
+        方案C（逐层谱约束）已在初始化时应用：
+            - 每层权重已缩放，谱范数 ≤ target_spectral_norm
+            - 确保各层 Lipschitz 常数均匀控制
+
+        方案B（激活函数斜率限制）在 forward 中应用：
+            - scaled_tanh(x) = tanh(x / (1 + gamma))
+            - 进一步限制激活函数的有效斜率
+
+        组合效果：
+            - 总 Lipschitz ≈ (target_spectral_norm)^n * (1/(1+gamma))^n
+            - 逐层谱约束解决"闸门效应"
+            - gamma 参数提供额外的连续调节能力
 
         Args:
             x: 输入向量
@@ -478,8 +587,10 @@ class FastDynamicsFunction(DynamicsFunction):
 
         # 衰减项（自然衰减，不使用谱归一化，因为需要保持精确的衰减值）
         self.decay_layer = nn.Linear(self.config.fast_dim, self.config.fast_dim, bias=False)
-        # 初始化为对角矩阵，产生衰减效果
-        nn.init.constant_(self.decay_layer.weight, -self.config.decay_rate)
+        # 初始化为对角矩阵，产生衰减效果（每个维度只受自身衰减影响）
+        with torch.no_grad():
+            self.decay_layer.weight.zero_()
+            self.decay_layer.weight.diagonal().fill_(-self.config.decay_rate)
 
         # 将网络移到设备上
         self.to(self.device)
@@ -1344,8 +1455,6 @@ class FastDynamicsSystem(nn.Module):
         self.config.max_gradient_norm = params.max_gradient_norm
 
         # 更新动力学函数中的参数（如果已初始化）
-        # 注意：不直接修改衰减层权重，因为这可能破坏谱归一化
-        # 衰减效果通过 config.decay_rate 在 forward 中实现
         if self.dynamics_fn is not None:
             self.dynamics_fn.config.decay_rate = params.decay_rate
             self.dynamics_fn.config.gamma = params.gamma
@@ -1353,6 +1462,21 @@ class FastDynamicsSystem(nn.Module):
             self.dynamics_fn.config.noise_scale = params.noise_scale
             self.dynamics_fn.config.state_norm_threshold = params.state_norm_threshold
             self.dynamics_fn.config.max_gradient_norm = params.max_gradient_norm
+            
+            # 更新衰减层权重（对角矩阵）
+            if hasattr(self.dynamics_fn, 'decay_layer'):
+                if hasattr(self.dynamics_fn.decay_layer, 'weight_u'):
+                    self.dynamics_fn.decay_layer = torch.nn.utils.remove_spectral_norm(
+                        self.dynamics_fn.decay_layer
+                    )
+                with torch.no_grad():
+                    self.dynamics_fn.decay_layer.weight.zero_()
+                    self.dynamics_fn.decay_layer.weight.diagonal().fill_(-params.decay_rate)
+                self.dynamics_fn.decay_layer.bias = None
+            
+            # 更新 gamma 参数（内部限速模式）
+            if hasattr(self.dynamics_fn.evolution_fn, 'gamma'):
+                self.dynamics_fn.evolution_fn.gamma = params.gamma
 
     def switch_state(
         self,

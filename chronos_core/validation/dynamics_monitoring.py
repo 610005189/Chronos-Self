@@ -519,9 +519,10 @@ class DynamicsMonitoring:
         current_state: SelfState,
         verbose: bool = False,
         num_exponents: int = 10,
-        calc_steps: int = 200,
+        calc_steps: int = 500,
         dt: float = 0.01,
-        reorth_interval: int = 10
+        reorth_interval: int = 5,
+        use_float64: bool = False
     ) -> Dict[str, Any]:
         """
         基于 Jacobian 的 Lyapunov 谱计算（专家建议：交叉验证 Wolf 算法）
@@ -529,10 +530,13 @@ class DynamicsMonitoring:
         方法：沿长轨迹定期计算 J(t) = ∂f/∂x，用 QR 分解累积计算 Lyapunov 谱。
         增加重正交化步骤（Gram-Schmidt）以防止数值发散。
 
-        修复：
-        1. 在 QR 分解后增加 Gram-Schmidt 再正交化
-        2. 每 reorth_interval 步执行一次重正交化
-        3. 支持更大维度的系统
+        稳定性增强：
+        1. 默认计算步数增加到 500 步，提高统计可靠性
+        2. 重正交化间隔降低到 5 步，防止数值误差累积
+        3. 添加 NaN/Inf 检测，及时发现数值不稳定
+        4. 添加正交性损失检测，监控 Q 矩阵质量
+        5. 添加收敛性判断，最后 100 步变化 < 5% 视为收敛
+        6. 支持 float64 高精度计算模式
 
         Args:
             current_state: 当前状态
@@ -541,18 +545,23 @@ class DynamicsMonitoring:
             calc_steps: 计算步数
             dt: 时间步长
             reorth_interval: 重正交化间隔（步数）
+            use_float64: 是否使用 float64 精度
 
         Returns:
-            计算结果字典，包含全谱分布
+            计算结果字典，包含全谱分布和收敛状态
         """
         try:
             fast_dim = current_state.E_fast.shape[-1]
             k = min(num_exponents, fast_dim)
 
-            Q = torch.eye(fast_dim, k=k, device=self.device)
-            log_evolutions = torch.zeros(k, device=self.device)
+            dtype = torch.float64 if use_float64 else torch.float32
+            Q = torch.eye(fast_dim, k=k, device=self.device, dtype=dtype)
+            log_evolutions = torch.zeros(k, device=self.device, dtype=dtype)
 
             state = current_state.copy()
+
+            convergence_history = []
+            max_orthogonality_error = 0.0
 
             for step in range(calc_steps):
                 y = state.E_fast.unsqueeze(0)
@@ -584,16 +593,37 @@ class DynamicsMonitoring:
                     create_graph=False
                 ).squeeze(0)
 
+                if use_float64:
+                    J = J.to(dtype)
+                    Q = Q.to(dtype)
+
                 JQ = J @ Q[:, :k]
 
                 Q, R = torch.linalg.qr(JQ)
 
-                # 重正交化：每隔 reorth_interval 步执行一次 Gram-Schmidt 再正交化
-                # 防止 QR 分解累积数值误差导致正交性丢失
+                qr_ortho_error = torch.norm(Q.T @ Q - torch.eye(k, device=self.device, dtype=dtype))
+                max_orthogonality_error = max(max_orthogonality_error, qr_ortho_error.item())
+
+                if torch.any(torch.isnan(Q)) or torch.any(torch.isinf(Q)):
+                    logger.warning(f"Numerical instability detected at step {step}: Q contains NaN/Inf")
+                    break
+
+                if torch.any(torch.isnan(R)) or torch.any(torch.isinf(R)):
+                    logger.warning(f"Numerical instability detected at step {step}: R contains NaN/Inf")
+                    break
+
                 if (step + 1) % reorth_interval == 0:
                     Q = self._gram_schmidt_reorthogonalize(Q[:, :k])
 
-                log_evolutions += torch.log(torch.diag(R).abs())
+                diag_R = torch.diag(R)
+                if torch.any(diag_R.abs() < 1e-15):
+                    logger.warning(f"Near-singular R matrix at step {step}, condition number may be poor")
+
+                log_evolutions += torch.log(diag_R.abs())
+
+                if (step + 1) % 50 == 0:
+                    current_lambda = (log_evolutions / ((step + 1) * dt)).sort(descending=True)[0][0].item()
+                    convergence_history.append(current_lambda)
 
                 state = self.engine.step(state, inputs=None, dt=dt)
 
@@ -604,12 +634,21 @@ class DynamicsMonitoring:
             lambda_sum = lyapunov_spectrum.sum().item()
             positive_count = (lyapunov_spectrum > 0).sum().item()
 
+            converged = False
+            convergence_change = np.nan
+            if len(convergence_history) >= 3:
+                recent = convergence_history[-3:]
+                max_change = max(abs(recent[i] - recent[i-1]) / abs(recent[i-1]) for i in range(1, len(recent)))
+                convergence_change = max_change
+                converged = max_change < 0.05
+
             if verbose:
                 logger.info(
                     f"Jacobian Lyapunov: λ_max={lambda_max:.4f}, "
                     f"λ_sum={lambda_sum:.4f}, positive_count={positive_count}"
                 )
                 logger.info(f"Lyapunov spectrum top 5: {lyapunov_spectrum[:5].cpu().numpy()}")
+                logger.info(f"Converged: {converged}, max_orthogonality_error={max_orthogonality_error:.6e}")
 
             passed = bool(0 < lambda_max < 0.2 and lambda_sum < 0)
 
@@ -621,11 +660,18 @@ class DynamicsMonitoring:
                 "positive_count": positive_count,
                 "spectrum": lyapunov_spectrum.cpu().numpy().tolist(),
                 "passed": passed,
-                "method": "jacobian_qr"
+                "method": "jacobian_qr",
+                "converged": converged,
+                "convergence_change": convergence_change,
+                "max_orthogonality_error": max_orthogonality_error,
+                "use_float64": use_float64,
+                "actual_steps": calc_steps
             }
 
         except Exception as e:
             logger.error(f"Jacobian Lyapunov calculation failed: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return {
                 "lambda_max": np.nan,
                 "lambda_mean": np.nan,
@@ -635,7 +681,9 @@ class DynamicsMonitoring:
                 "spectrum": [],
                 "passed": False,
                 "method": "jacobian_qr",
-                "error": str(e)
+                "error": str(e),
+                "converged": False,
+                "max_orthogonality_error": np.nan
             }
 
     def _gram_schmidt_reorthogonalize(self, Q: torch.Tensor) -> torch.Tensor:
