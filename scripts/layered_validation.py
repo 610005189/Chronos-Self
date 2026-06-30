@@ -32,6 +32,8 @@ class TuningParams:
     decay_rate: float = 0.85
     max_grad_norm: float = 10.0
     damping_coeff: float = 0.0
+    gamma: float = 0.5
+    alpha: float = 0.1  # 抑制反馈增益（E/I 平衡）
 
 
 @dataclass
@@ -312,6 +314,14 @@ def run_fast_real_validation(params: TuningParams, fast_dim=128, seed=42) -> Val
                     setattr(dyn_fn.config, 'damping_coeff', params.damping_coeff)
                 else:
                     dyn_fn.config.damping_coeff = params.damping_coeff
+                if not hasattr(dyn_fn.config, 'gamma'):
+                    setattr(dyn_fn.config, 'gamma', params.gamma)
+                else:
+                    dyn_fn.config.gamma = params.gamma
+                if not hasattr(dyn_fn.config, 'alpha'):
+                    setattr(dyn_fn.config, 'alpha', params.alpha)
+                else:
+                    dyn_fn.config.alpha = params.alpha
         
         p0_config = P0ValidationConfig(
             open_loop_hours=config.validation.p0_open_loop_hours,

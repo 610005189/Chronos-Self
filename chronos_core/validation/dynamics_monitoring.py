@@ -514,6 +514,163 @@ class DynamicsMonitoring:
             "history": []
         }
 
+    def _calculate_lyapunov_jacobian(
+        self,
+        current_state: SelfState,
+        verbose: bool = False,
+        num_exponents: int = 10,
+        calc_steps: int = 200,
+        dt: float = 0.01,
+        reorth_interval: int = 10
+    ) -> Dict[str, Any]:
+        """
+        基于 Jacobian 的 Lyapunov 谱计算（专家建议：交叉验证 Wolf 算法）
+
+        方法：沿长轨迹定期计算 J(t) = ∂f/∂x，用 QR 分解累积计算 Lyapunov 谱。
+        增加重正交化步骤（Gram-Schmidt）以防止数值发散。
+
+        修复：
+        1. 在 QR 分解后增加 Gram-Schmidt 再正交化
+        2. 每 reorth_interval 步执行一次重正交化
+        3. 支持更大维度的系统
+
+        Args:
+            current_state: 当前状态
+            verbose: 详细日志
+            num_exponents: 要计算的 Lyapunov 指数数量
+            calc_steps: 计算步数
+            dt: 时间步长
+            reorth_interval: 重正交化间隔（步数）
+
+        Returns:
+            计算结果字典，包含全谱分布
+        """
+        try:
+            fast_dim = current_state.E_fast.shape[-1]
+            k = min(num_exponents, fast_dim)
+
+            Q = torch.eye(fast_dim, k=k, device=self.device)
+            log_evolutions = torch.zeros(k, device=self.device)
+
+            state = current_state.copy()
+
+            for step in range(calc_steps):
+                y = state.E_fast.unsqueeze(0)
+                y.requires_grad_(True)
+
+                dydt = self.engine.fast_dynamics.forward(
+                    torch.tensor([step * dt], device=self.device),
+                    y,
+                    E_slow=state.E_slow.unsqueeze(0),
+                    X_sem=None,
+                    X_log=None,
+                    X_fused=None,
+                    C_meta=None,
+                    B_chaos=None
+                )
+
+                J = torch.autograd.functional.jacobian(
+                    lambda x: self.engine.fast_dynamics.forward(
+                        torch.tensor([step * dt], device=self.device),
+                        x,
+                        E_slow=state.E_slow.unsqueeze(0),
+                        X_sem=None,
+                        X_log=None,
+                        X_fused=None,
+                        C_meta=None,
+                        B_chaos=None
+                    ).squeeze(0),
+                    y,
+                    create_graph=False
+                ).squeeze(0)
+
+                JQ = J @ Q[:, :k]
+
+                Q, R = torch.linalg.qr(JQ)
+
+                # 重正交化：每隔 reorth_interval 步执行一次 Gram-Schmidt 再正交化
+                # 防止 QR 分解累积数值误差导致正交性丢失
+                if (step + 1) % reorth_interval == 0:
+                    Q = self._gram_schmidt_reorthogonalize(Q[:, :k])
+
+                log_evolutions += torch.log(torch.diag(R).abs())
+
+                state = self.engine.step(state, inputs=None, dt=dt)
+
+            lyapunov_spectrum = log_evolutions / (calc_steps * dt)
+            lyapunov_spectrum = torch.sort(lyapunov_spectrum, descending=True)[0]
+
+            lambda_max = lyapunov_spectrum[0].item()
+            lambda_sum = lyapunov_spectrum.sum().item()
+            positive_count = (lyapunov_spectrum > 0).sum().item()
+
+            if verbose:
+                logger.info(
+                    f"Jacobian Lyapunov: λ_max={lambda_max:.4f}, "
+                    f"λ_sum={lambda_sum:.4f}, positive_count={positive_count}"
+                )
+                logger.info(f"Lyapunov spectrum top 5: {lyapunov_spectrum[:5].cpu().numpy()}")
+
+            passed = bool(0 < lambda_max < 0.2 and lambda_sum < 0)
+
+            return {
+                "lambda_max": lambda_max,
+                "lambda_mean": lyapunov_spectrum.mean().item(),
+                "lambda_std": lyapunov_spectrum.std().item(),
+                "lambda_sum": lambda_sum,
+                "positive_count": positive_count,
+                "spectrum": lyapunov_spectrum.cpu().numpy().tolist(),
+                "passed": passed,
+                "method": "jacobian_qr"
+            }
+
+        except Exception as e:
+            logger.error(f"Jacobian Lyapunov calculation failed: {e}")
+            return {
+                "lambda_max": np.nan,
+                "lambda_mean": np.nan,
+                "lambda_std": np.nan,
+                "lambda_sum": np.nan,
+                "positive_count": 0,
+                "spectrum": [],
+                "passed": False,
+                "method": "jacobian_qr",
+                "error": str(e)
+            }
+
+    def _gram_schmidt_reorthogonalize(self, Q: torch.Tensor) -> torch.Tensor:
+        """
+        Gram-Schmidt 再正交化
+        对 QR 分解后的矩阵 Q 进行再正交化，防止数值误差累积导致正交性丢失
+
+        Args:
+            Q: 正交矩阵（形状：[n, k]）
+
+        Returns:
+            重新正交化后的矩阵
+        """
+        n, k = Q.shape
+        Q_new = Q.clone()
+
+        for i in range(k):
+            # 当前列
+            q_i = Q_new[:, i]
+
+            # 减去与前面所有列的投影
+            for j in range(i):
+                q_j = Q_new[:, j]
+                q_i = q_i - torch.dot(q_i, q_j) * q_j
+
+            # 归一化
+            norm = torch.norm(q_i)
+            if norm > 1e-12:
+                Q_new[:, i] = q_i / norm
+            else:
+                # 数值不稳定时使用原始向量
+                Q_new[:, i] = Q[:, i]
+
+        return Q_new
+
     def _calculate_self_prediction_error(
         self,
         verbose: bool
