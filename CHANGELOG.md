@@ -95,7 +95,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- (None)
+- 清理过时的诊断和调试脚本（30+文件）
+  - `diagnose_*` 系列（11个文件）：diagnose_system.py, diagnose_trajectory.py, diagnose_jacobian.py, diagnose_lyapunov.py, diagnose_chaos.py, diagnose_clip.py, diagnose_clip_chaos.py, diagnose_param_search.py, diagnose_fine_search.py, diagnose_trajectory_jacobian.py
+  - 参数搜索脚本（10个文件）：search_256d.py, quick_search_256d.py, fine_search_256d.py, ei_grid_search.py, enhanced_tuner.py, fast_enhanced_tuner.py, fast_gamma_search.py, real_system_fast_tuner.py, search_real_dynamics.py, auto_validation_optimizer.py
+  - 临时测试脚本（10个文件）：simple_perturbation.py, long_perturbation.py, very_long_perturbation.py, more_steps_lyapunov.py, p0_lyapunov_5000_steps.py, decompose_jacobian.py, check_dydt_norm.py, validate_spectral_constraint.py, validate_state_lyapunov.py, performance_benchmark.py
+  - 其他脚本（2个文件）：layered_validation.py, generate_validation_report.py
 
 ## [0.1.1] - 2026-06-27
 

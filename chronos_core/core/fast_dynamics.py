@@ -67,6 +67,10 @@ class FastDynamicsConfig:
     # 稳定性参数
     max_gradient_norm: float = 10.0  # 梯度裁剪
     state_norm_threshold: float = 100.0  # 状态范数阈值
+    state_norm_clip: float = 0.0  # 状态范数截断（>0时启用，每步将状态范数截断到此值）
+
+    # 逐层谱约束参数（方案C）
+    target_spectral_norm: float = 1.9  # 每层权重的目标谱范数（控制Lipschitz常数）
 
     # 时间尺度
     time_scale: float = 1.0  # 相对时间尺度（相对于慢变量）
@@ -579,7 +583,8 @@ class FastDynamicsFunction(DynamicsFunction):
                 output_dim=self.config.fast_dim,
                 hidden_dim=self.config.hidden_dim,
                 num_hidden_layers=self.config.num_hidden_layers,
-                activation=self.config.activation
+                activation=self.config.activation,
+                target_spectral_norm=self.config.target_spectral_norm
             )
             # 设置内部限速 gamma 参数
             if hasattr(self.evolution_fn, 'gamma'):
@@ -1302,6 +1307,13 @@ class FastDynamicsSystem(nn.Module):
         # 欧拉更新
         E_fast_new = E_fast + dt * dydt
 
+        # 状态范数主动截断（方案D：范数控制，防止持续增长）
+        # 当 state_norm_clip > 0 时启用，每步将状态范数截断到此值
+        if self.config.state_norm_clip > 0:
+            norm = torch.norm(E_fast_new)
+            if norm > self.config.state_norm_clip:
+                E_fast_new = E_fast_new * (self.config.state_norm_clip / norm)
+
         # 状态范数裁剪（防止发散）- 使用当前状态参数
         norm = torch.norm(E_fast_new).item()
         threshold = params.state_norm_threshold
@@ -1452,7 +1464,9 @@ class FastDynamicsSystem(nn.Module):
         self.config.alpha = params.alpha
         self.config.e_target = params.e_target
         self.config.state_norm_threshold = params.state_norm_threshold
+        self.config.state_norm_clip = params.state_norm_clip
         self.config.max_gradient_norm = params.max_gradient_norm
+        self.config.target_spectral_norm = params.target_spectral_norm
 
         # 更新动力学函数中的参数（如果已初始化）
         if self.dynamics_fn is not None:
@@ -1461,7 +1475,9 @@ class FastDynamicsSystem(nn.Module):
             self.dynamics_fn.config.dynamics_scale = params.dynamics_scale
             self.dynamics_fn.config.noise_scale = params.noise_scale
             self.dynamics_fn.config.state_norm_threshold = params.state_norm_threshold
+            self.dynamics_fn.config.state_norm_clip = params.state_norm_clip
             self.dynamics_fn.config.max_gradient_norm = params.max_gradient_norm
+            self.dynamics_fn.config.target_spectral_norm = params.target_spectral_norm
             
             # 更新衰减层权重（对角矩阵）
             if hasattr(self.dynamics_fn, 'decay_layer'):

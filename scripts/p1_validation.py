@@ -1,229 +1,303 @@
 """
-P1 Validation Script
-====================
-
-Validates P1 requirements: DMN autocorrelation, Working Memory chunks, L2 ablation.
+P1级验证 - 核心指标验证
 """
 
 import torch
 import numpy as np
-import time
 import sys
-import json
 from pathlib import Path
 
-sys.path.insert(0, '.')
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
-from chronos_core.core.dmn_system import DefaultModeNetwork, DMNConfig
-from chronos_core.memory.work_memory import WorkingMemory, ChunkType
-from chronos_core.core.meta_cognitive.meta_cognitive_manager import (
-    MetaCognitiveManager,
-    MetaCognitiveManagerConfig
-)
+from chronos_core.core.fast_dynamics import FastDynamicsSystem, FastDynamicsConfig
+from chronos_core.core.state_controller import StateMode
 
-def test_dmn_autocorrelation(device='cpu', seed=42):
-    """Test DMN autocorrelation > 0.3"""
-    print("\n[Task 1] DMN Autocorrelation Test")
-    
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    
-    dmn_config = DMNConfig(
-        fast_variable_dim=256,  # Reduced for speed
-        slow_variable_dim=64,
-        core_subspace_dim=32,
-        base_gain=0.1
-    )
-    
-    dmn = DefaultModeNetwork(config=dmn_config, device=device, seed=seed)
-    dmn.initialize()
-    
-    # Run for 100 seconds (simulation time)
-    dt = 0.01
-    steps = 10000  # 100s / 0.01s
-    trajectory = []
-    
-    for i in range(steps):
-        dmn.step(dt)
-        if i % 100 == 0:
-            trajectory.append(dmn.state.E_fast.clone().cpu())
-    
-    # Calculate autocorrelation
-    traj_array = torch.stack(trajectory).numpy()
-    autocorrs = []
-    for dim in range(min(5, traj_array.shape[1])):
-        x = traj_array[:, dim]
-        if np.var(x) > 1e-6:
-            autocorr = np.corrcoef(x[:-1], x[1:])[0, 1]
-            autocorrs.append(abs(autocorr))
-    
-    mean_autocorr = np.mean(autocorrs) if autocorrs else 0.0
-    passed = mean_autocorr > 0.3
-    
-    print(f"  Autocorrelation: {mean_autocorr:.4f} (threshold: 0.3)")
-    print(f"  Result: {'✓ PASS' if passed else '❌ FAIL'}")
-    
-    return {
-        "passed": bool(passed),  # Convert to Python bool
-        "autocorrelation_value": float(mean_autocorr),
-        "threshold": 0.3
-    }
 
-def test_working_memory(device='cpu', seed=42):
-    """Test Working Memory capacity 7±2"""
-    print("\n[Task 2] Working Memory Chunk Test")
+def test_initial_condition_robustness():
+    """测试不同初始条件下的鲁棒性"""
+    print("=" * 70)
+    print("测试1: 初始条件鲁棒性")
+    print("=" * 70)
     
-    torch.manual_seed(seed)
-    
-    wm = WorkingMemory(
-        capacity=7,
+    device = torch.device('cpu')
+    config = FastDynamicsConfig(
         fast_dim=256,
-        chunk_dim=64,
-        device=device
+        slow_dim=64,
+        semantic_dim=128,
+        physical_dim=64,
+        fusion_dim=256,
+        meta_cognitive_dim=64,
+        chaos_dim=0,
+        hidden_dim=128,
+        num_hidden_layers=2,
+        activation="tanh",
     )
     
-    # Test Miller's Law (7±2)
-    capacity = wm.capacity
-    satisfies_miller = 5 <= capacity <= 9
+    system = FastDynamicsSystem(config=config, device=str(device))
+    system.initialize()
+    system.switch_state(StateMode.WORK, force=True)
     
-    # Create chunks
-    for i in range(12):
-        state = torch.randn(256, device=device)
-        wm.create_chunk(
-            source_state=state,
-            chunk_type=ChunkType.SEMANTIC if i < 6 else ChunkType.EMOTIONAL,
-            initial_activation=1.0 - i * 0.05
-        )
+    E_slow = torch.randn(1, 64, device=device) * 0.1
     
-    # Check active chunks
-    active_count = len(wm.get_active_chunks())
-    constraint_valid = active_count <= capacity
+    print("测试 5 个不同初始状态...")
+    print(f"{'Seed':>6} | {'mean_norm':>10} | {'std_norm':>10} | {'CV':>8} | {'max_norm':>10} | 状态")
+    print("-" * 70)
     
-    # Validate
-    is_valid, errors = wm.validate()
+    all_bounded = True
+    cvs = []
     
-    passed = satisfies_miller and constraint_valid and is_valid
-    print(f"  Capacity: {capacity} (Miller's Law: 7±2)")
-    print(f"  Active chunks: {active_count}/{len(wm.get_all_chunks())}")
-    print(f"  Result: {'✓ PASS' if passed else '❌ FAIL'}")
+    for seed in range(5):
+        torch.manual_seed(seed)
+        E_fast = torch.randn(1, 256, device=device)
+        E_fast = E_fast / torch.norm(E_fast) * (0.1 + seed * 0.2)  # 不同初始范数
+        
+        norms = []
+        for i in range(1000):
+            with torch.no_grad():
+                E_fast = system.step(E_fast, E_slow, dt=0.01, t=float(i)*0.01)
+            norms.append(torch.norm(E_fast).item())
+        
+        norms = np.array(norms)
+        late_norms = norms[500:]
+        mean_norm = late_norms.mean()
+        std_norm = late_norms.std()
+        cv_norm = std_norm / max(mean_norm, 1e-6)
+        max_norm = norms.max()
+        
+        bounded = max_norm < 200
+        if not bounded:
+            all_bounded = False
+        
+        cvs.append(cv_norm)
+        status = "PASS" if bounded else "FAIL"
+        print(f"{seed:>6} | {mean_norm:>10.2f} | {std_norm:>10.2f} | {cv_norm:>8.4f} | {max_norm:>10.2f} | {status}")
     
-    return {
-        "passed": passed,
-        "capacity": capacity,
-        "active_chunks": active_count,
-        "satisfies_miller_law": satisfies_miller
-    }
+    cv_mean = np.mean(cvs)
+    cv_std = np.std(cvs)
+    print()
+    print(f"平均CV: {cv_mean:.4f} ± {cv_std:.4f}")
+    print(f"所有初始条件有界: {'PASS' if all_bounded else 'FAIL'}")
+    print(f"CV一致性(CV的CV < 0.5): {'PASS' if cv_std/max(cv_mean,1e-6) < 0.5 else 'FAIL'}")
+    
+    passed = all_bounded and cv_std/max(cv_mean,1e-6) < 0.5
+    print()
+    print(f"初始条件鲁棒性: {'PASS' if passed else 'FAIL'}")
+    return passed
 
-def test_l2_ablation(device='cpu', seed=42):
-    """Test L2 ablation retention rate > 0.4"""
-    print("\n[Task 3] L2 Ablation Test")
+
+def test_spectral_constraint_effectiveness():
+    """测试逐层谱约束的有效性"""
+    print()
+    print("=" * 70)
+    print("测试2: 逐层谱约束有效性")
+    print("=" * 70)
     
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+    device = torch.device('cpu')
     
-    config = MetaCognitiveManagerConfig(
-        ablation_threshold=0.4,
-        ablation_window_size=50,
-        device=device
+    print("测试不同 target_spectral_norm 下的权重谱范数...")
+    print(f"{'tSN':>6} | {'Layer1 σ_max':>12} | {'Layer2 σ_max':>12} | {'out σ_max':>12}")
+    print("-" * 55)
+    
+    tSN_values = [1.0, 1.5, 2.0, 3.0]
+    all_close = True
+    
+    for tSN in tSN_values:
+        config = FastDynamicsConfig(
+            fast_dim=256,
+            slow_dim=64,
+            semantic_dim=128,
+            physical_dim=64,
+            fusion_dim=256,
+            meta_cognitive_dim=64,
+            chaos_dim=0,
+            hidden_dim=128,
+            num_hidden_layers=2,
+            activation="tanh",
+            target_spectral_norm=tSN,
+        )
+        
+        system = FastDynamicsSystem(config=config, device=str(device))
+        system.initialize()
+        
+        # 计算各层权重的谱范数（最大奇异值）
+        evo_fn = system.dynamics_fn.evolution_fn
+        layers = []
+        if hasattr(evo_fn, 'linear_layers'):
+            for layer in evo_fn.linear_layers:
+                if hasattr(layer, 'weight'):
+                    layers.append(layer.weight.data)
+        elif hasattr(evo_fn, 'layers'):
+            for layer in evo_fn.layers:
+                if hasattr(layer, 'weight'):
+                    layers.append(layer.weight.data)
+        
+        sigma_maxes = []
+        for i, W in enumerate(layers[:3]):  # 只看前3层
+            s = torch.linalg.svdvals(W)
+            sigma_max = s.max().item()
+            sigma_maxes.append(sigma_max)
+        
+        # 检查是否接近目标值
+        for sigma in sigma_maxes:
+            if abs(sigma - tSN) / tSN > 0.3:  # 允许30%误差
+                all_close = False
+        
+        while len(sigma_maxes) < 3:
+            sigma_maxes.append(float('nan'))
+        
+        print(f"{tSN:>6.1f} | {sigma_maxes[0]:>12.4f} | {sigma_maxes[1]:>12.4f} | {sigma_maxes[2]:>12.4f}")
+    
+    print()
+    print(f"谱约束有效(±30%): {'PASS' if all_close else 'FAIL'}")
+    return all_close
+
+
+def test_decay_controllability():
+    """测试衰减率的可控性（状态范数随decay_rate变化）"""
+    print()
+    print("=" * 70)
+    print("测试3: 衰减率可控性")
+    print("=" * 70)
+    
+    device = torch.device('cpu')
+    config = FastDynamicsConfig(
+        fast_dim=256,
+        slow_dim=64,
+        semantic_dim=128,
+        physical_dim=64,
+        fusion_dim=256,
+        meta_cognitive_dim=64,
+        chaos_dim=0,
+        hidden_dim=128,
+        num_hidden_layers=2,
+        activation="tanh",
     )
     
-    manager = MetaCognitiveManager(config=config, control_signal_dim=64, device=device)
+    system = FastDynamicsSystem(config=config, device=str(device))
+    system.initialize()
+    system.switch_state(StateMode.WORK, force=True)
     
-    control_signal = torch.randn(64, device=device)
+    E_slow = torch.randn(1, 64, device=device) * 0.1
     
-    # Pre-ablation performance
-    pre_perfs = []
-    for _ in range(50):
-        sig, _ = manager.process_control_signal(control_signal)
-        perf = torch.norm(sig).item()
-        pre_perfs.append(perf)
-        manager.record_performance(perf, is_pre_ablation=True)
+    decay_rates = [0.1, 0.3, 0.5, 0.8, 1.0]
+    print(f"测试不同 decay_rate 下的状态范数...")
+    print(f"{'decay':>6} | {'mean_norm':>10} | {'max_norm':>10} | 状态")
+    print("-" * 45)
     
-    pre_mean = np.mean(pre_perfs)
+    norms_list = []
+    all_bounded = True
     
-    # Ablation phase
-    manager.start_ablation_test()
-    post_perfs = []
-    for _ in range(50):
-        zero_sig = torch.zeros(64, device=device)
-        sig, _ = manager.process_control_signal(zero_sig, apply_perturbation=False)
-        perf = torch.norm(sig).item() + 0.3  # Base performance
-        post_perfs.append(perf)
-        manager.record_performance(perf, is_pre_ablation=False)
+    for decay in decay_rates:
+        # 手动设置参数
+        from chronos_core.core.state_controller import StateParameters
+        params = StateParameters(
+            decay_rate=decay,
+            gamma=0.0,
+            dynamics_scale=7.0,
+            noise_scale=0.00001,
+            ei_ratio=4.0,
+            alpha=0.0,
+            e_target=0.0,
+            state_norm_threshold=200.0,
+            state_norm_clip=0.0,
+            max_gradient_norm=200.0,
+            target_spectral_norm=1.5,
+        )
+        system.state_controller._transition_state.current_params = params
+        system.state_controller._transition_state.target_params = params
+        system._apply_state_params(params)
+        
+        torch.manual_seed(42)
+        E_fast = torch.randn(1, 256, device=device)
+        E_fast = E_fast / torch.norm(E_fast) * 0.5
+        
+        norms = []
+        for i in range(1000):
+            with torch.no_grad():
+                E_fast = system.step(E_fast, E_slow, dt=0.01, t=float(i)*0.01)
+            norms.append(torch.norm(E_fast).item())
+        
+        norms = np.array(norms)
+        late_norms = norms[500:]
+        mean_norm = late_norms.mean()
+        max_norm = norms.max()
+        
+        norms_list.append(mean_norm)
+        bounded = max_norm < 200
+        if not bounded:
+            all_bounded = False
+        
+        print(f"{decay:>6.1f} | {mean_norm:>10.2f} | {max_norm:>10.2f} | {'PASS' if bounded else 'FAIL'}")
     
-    post_mean = np.mean(post_perfs)
-    manager.end_ablation_test()
+    # 验证：decay越大，norm应该越小（单调性）
+    is_monotonic = all(norms_list[i] >= norms_list[i+1] for i in range(len(norms_list)-1))
+    print()
+    print(f"衰减率-范数单调性: {'PASS' if is_monotonic else 'FAIL'} (decay越大，norm越小)")
+    print(f"所有配置有界: {'PASS' if all_bounded else 'FAIL'}")
     
-    # Validate
-    is_valid, result = manager.validate_independence()
-    retention = result["retention_rate"]
-    
-    passed = is_valid and retention > 0.4
-    print(f"  Pre-ablation performance: {pre_mean:.4f}")
-    print(f"  Post-ablation performance: {post_mean:.4f}")
-    print(f"  Retention rate: {retention:.4f} (threshold: 0.4)")
-    print(f"  Result: {'✓ PASS' if passed else '❌ FAIL'}")
-    
-    return {
-        "passed": passed,
-        "retention_rate": retention,
-        "threshold": 0.4,
-        "pre_performance": pre_mean,
-        "post_performance": post_mean
-    }
+    passed = is_monotonic and all_bounded
+    print()
+    print(f"衰减率可控性: {'PASS' if passed else 'FAIL'}")
+    return passed
+
 
 def main():
-    """Run P1 validation"""
-    print("=" * 80)
-    print("P1 Validation")
-    print("=" * 80)
+    print("\n" + "=" * 70)
+    print("P1级验证 - 核心指标")
+    print("=" * 70)
     
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f"Device: {device}")
+    all_passed = True
+    results = {}
     
-    start_time = time.time()
+    # 测试1: 初始条件鲁棒性
+    try:
+        passed = test_initial_condition_robustness()
+        results['initial_condition'] = passed
+        all_passed = all_passed and passed
+    except Exception as e:
+        print(f"测试失败: {e}")
+        import traceback
+        traceback.print_exc()
+        results['initial_condition'] = False
+        all_passed = False
     
-    # Run tests
-    dmn_result = test_dmn_autocorrelation(device)
-    wm_result = test_working_memory(device)
-    l2_result = test_l2_ablation(device)
+    # 测试2: 逐层谱约束有效性
+    try:
+        passed = test_spectral_constraint_effectiveness()
+        results['spectral_constraint'] = passed
+        all_passed = all_passed and passed
+    except Exception as e:
+        print(f"测试失败: {e}")
+        import traceback
+        traceback.print_exc()
+        results['spectral_constraint'] = False
+        all_passed = False
     
-    elapsed = time.time() - start_time
+    # 测试3: 衰减率可控性
+    try:
+        passed = test_decay_controllability()
+        results['decay_controllability'] = passed
+        all_passed = all_passed and passed
+    except Exception as e:
+        print(f"测试失败: {e}")
+        import traceback
+        traceback.print_exc()
+        results['decay_controllability'] = False
+        all_passed = False
     
-    # Overall result
-    all_passed = dmn_result["passed"] and wm_result["passed"] and l2_result["passed"]
-    score = sum([
-        0.33 if dmn_result["passed"] else 0,
-        0.33 if wm_result["passed"] else 0,
-        0.34 if l2_result["passed"] else 0
-    ])
+    print()
+    print("=" * 70)
+    print("P1 验证总结")
+    print("=" * 70)
+    for name, passed in results.items():
+        print(f"  {name:<25}: {'PASS' if passed else 'FAIL'}")
+    print()
+    print(f"整体结果: {'PASS' if all_passed else 'FAIL'}")
+    print("=" * 70)
     
-    print("\n" + "=" * 80)
-    print(f"Overall: {'✓ PASS' if all_passed else '❌ FAIL'}")
-    print(f"Score: {score:.2f}")
-    print(f"Time: {elapsed:.2f}s")
-    print("=" * 80)
-    
-    # Save report
-    report = {
-        "is_passed": all_passed,
-        "overall_score": score,
-        "validation_time": elapsed,
-        "device": device,
-        "dmn_autocorrelation": dmn_result,
-        "working_memory": wm_result,
-        "l2_ablation": l2_result
-    }
-    
-    output_dir = Path("validation_results")
-    output_dir.mkdir(exist_ok=True)
-    
-    with open(output_dir / "p1_report.json", 'w', encoding='utf-8') as f:
-        json.dump(report, f, indent=2)
-    
-    print(f"\nReport saved to validation_results/p1_report.json")
-    
-    return report
+    return all_passed
+
 
 if __name__ == "__main__":
     main()

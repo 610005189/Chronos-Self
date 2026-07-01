@@ -49,7 +49,7 @@ class StateParameters:
     """
     # 动力学参数
     decay_rate: float = 0.85  # 自然衰减率
-    gamma: float = 0.5  # 线性耗散系数
+    gamma: float = 0.5  # 线性耗散系数（激活函数斜率限制）
     dynamics_scale: float = 1.0  # 演化函数输出缩放因子
     noise_scale: float = 0.00001  # 内部噪声强度
     
@@ -59,8 +59,12 @@ class StateParameters:
     e_target: float = 0.0  # 兴奋目标均值
     
     # 稳定性参数
-    state_norm_threshold: float = 100.0  # 状态范数阈值
+    state_norm_threshold: float = 100.0  # 状态范数阈值（紧急裁剪）
+    state_norm_clip: float = 0.0  # 状态范数主动截断（>0时启用）
     max_gradient_norm: float = 10.0  # 梯度裁剪阈值
+    
+    # 逐层谱约束参数
+    target_spectral_norm: float = 1.9  # 每层权重的目标谱范数
     
     def to_dict(self) -> Dict[str, float]:
         """转换为字典"""
@@ -73,7 +77,9 @@ class StateParameters:
             'alpha': self.alpha,
             'e_target': self.e_target,
             'state_norm_threshold': self.state_norm_threshold,
+            'state_norm_clip': self.state_norm_clip,
             'max_gradient_norm': self.max_gradient_norm,
+            'target_spectral_norm': self.target_spectral_norm,
         }
     
     @classmethod
@@ -89,39 +95,45 @@ class StateParameters:
 # 预定义状态参数配置
 STATE_PARAMS_CONFIG: Dict[StateMode, StateParameters] = {
     StateMode.REST: StateParameters(
-        decay_rate=0.95,  # 高衰减，快速稳定
-        gamma=0.28,  # 强耗散，确保稳定性（λ_max < 0）
-        dynamics_scale=0.3,  # 低动力学强度
+        decay_rate=0.0,  # 无衰减（逐层谱约束已控制稳定性）
+        gamma=0.0,  # 关闭激活函数斜率限制（逐层谱约束已足够）
+        dynamics_scale=0.8,  # 低动力学强度
         noise_scale=0.000001,  # 极低噪声
         ei_ratio=4.0,
-        alpha=0.2,  # 较强抑制反馈
+        alpha=0.0,  # E/I平衡关闭
         e_target=0.0,
-        state_norm_threshold=50.0,  # 低阈值，快速收敛
-        max_gradient_norm=5.0,  # 低梯度上限
+        state_norm_threshold=50.0,  # 紧急裁剪阈值
+        state_norm_clip=0.1,  # 主动范数截断
+        max_gradient_norm=5.0,
+        target_spectral_norm=2.1,  # 更高谱范数 = 更稳定（更大全局收缩）
     ),
     
     StateMode.WORK: StateParameters(
-        decay_rate=0.90,  # 中等衰减
-        gamma=0.21,  # 边缘混沌耗散（目标: λ_max ∈ (0, 0.1)）
-        dynamics_scale=0.8,  # 中等动力学强度
+        decay_rate=0.5,  # 适度衰减，确保系统有界
+        gamma=0.0,  # 关闭激活函数斜率限制
+        dynamics_scale=7.0,  # 中等动力学强度，产生温和混沌（λ_max≈0.17）
         noise_scale=0.00001,  # 默认噪声
         ei_ratio=4.0,
-        alpha=0.12,  # 适度抑制反馈
+        alpha=0.0,  # E/I平衡关闭
         e_target=0.0,
-        state_norm_threshold=100.0,  # 默认阈值
-        max_gradient_norm=8.0,  # 中等梯度上限
+        state_norm_threshold=200.0,  # 紧急裁剪阈值
+        state_norm_clip=0.0,  # 关闭主动范数截断，让系统自然演化
+        max_gradient_norm=200.0,  # 足够大，不裁剪真实动力学
+        target_spectral_norm=1.5,  # 逐层谱约束（温和混沌边缘）
     ),
     
     StateMode.EXPLORE: StateParameters(
-        decay_rate=0.85,  # 低衰减，保持活跃
-        gamma=0.18,  # 较弱耗散，允许更大波动（λ_max ∈ (0, 0.2)）
-        dynamics_scale=1.0,  # 较高动力学强度
+        decay_rate=0.1,  # 低衰减，允许更多探索
+        gamma=0.0,  # 关闭激活函数斜率限制
+        dynamics_scale=3.0,  # 高动力学强度，增强探索性（λ_max≈0.13）
         noise_scale=0.00005,  # 较高噪声，增强探索
         ei_ratio=4.0,
-        alpha=0.08,  # 弱抑制反馈，允许更大变化
+        alpha=0.0,  # E/I平衡关闭
         e_target=0.0,
-        state_norm_threshold=150.0,  # 高阈值，允许更大范围
-        max_gradient_norm=12.0,  # 较高梯度上限
+        state_norm_threshold=200.0,  # 高阈值
+        state_norm_clip=0.0,  # 关闭主动范数截断，让系统自由探索
+        max_gradient_norm=200.0,  # 足够大，不裁剪真实动力学
+        target_spectral_norm=1.5,  # 谱约束
     ),
 }
 
